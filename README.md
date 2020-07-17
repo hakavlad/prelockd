@@ -41,7 +41,7 @@ prelockd is a daemon that locks mmapped binaries and libraries in memory and pre
 ## Install 
 
 ```
-$ git clone https://github.com/hakavlad/nohang.git && cd nohang
+$ git clone https://github.com/hakavlad/prelockd.git && cd prelockd
 $ sudo make install
 $ sudo systemctl enable --now prelockd.service
 ```
