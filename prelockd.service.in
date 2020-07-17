@@ -6,6 +6,8 @@ Documentation=https://github.com/hakavlad/prelockd
 ExecStart=:TARGET_SBINDIR:/prelockd
 Restart=always
 RestartSec=0
+TasksMax=1
+OOMScoreAdjust=-200
 LimitMEMLOCK=infinity
 LimitNOFILE=infinity
 CapabilityBoundingSet=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \
@@ -14,6 +16,17 @@ ProtectSystem=strict
 PrivateDevices=true
 PrivateNetwork=true
 ProtectHome=true
+RestrictRealtime=yes
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelLogs=true
 
 [Install]
 WantedBy=multi-user.target
