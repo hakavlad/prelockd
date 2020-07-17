@@ -1,16 +1,47 @@
 #!/usr/bin/env python3
+"""prelockd"""
 
 import os
 import mmap
 from re import search
 from time import sleep, monotonic, process_time
-from sys import stdout, exit
+from sys import stdout, stderr, exit
 from signal import signal, SIGTERM, SIGINT, SIGQUIT, SIGHUP
 from ctypes import CDLL
 
 
+###############################################################################
+
+
+# lock file realpath if it matches r
+r = '^(/bin/|/sbin/|/lib/|/usr/bin/|/usr/sbin/|/usr/lib/|/usr/games/|/usr' \
+    '/lib64/|/usr/libexec/|/usr/local/bin/|/usr/local/sbin/|/usr/local/li' \
+    'b/|/opt/|/usr/share/|/etc/)'
+
+
+# read files by 1 MiB
+CHUNK = 1048576
+
+
+# max file size that can be locked
+MAX_SIZE = 1048576 * 10
+
+
+debug = False
+
+
+###############################################################################
+
+
+def errprint(*text):
+    """
+    """
+    print(*text, file=stderr, flush=True)
+
+
 def mlockall():
     """
+    lock process memory
     """
     MCL_CURRENT = 1
     MCL_FUTURE = 2
@@ -26,8 +57,9 @@ def mlockall():
             MCL_CURRENT | MCL_FUTURE
         )
         if result != 0:
-            print('ERROR: cannot lock all memory: [Errno {}]'.format(result))
-            print('Exit.')
+            errprint(
+                'ERROR: cannot lock all memory: [Errno {}]'.format(result))
+            errprint('Exit.')
             exit(1)
         else:
             print('process memory locked with MCL_CURRENT | MCL_FUTURE')
@@ -38,6 +70,7 @@ def mlockall():
 
 def signal_handler(signum, frame):
     """
+    handle signals: close fd and exit
     """
     if len(lock_dict) > 0:
         for i in lock_dict:
@@ -46,6 +79,75 @@ def signal_handler(signum, frame):
     print('Got signal {}, exit.'.format(signum))
     exit()
 
+
+def get_mapped_set():
+    """
+    """
+    _map_set = set()
+
+    for pid in os.listdir('/proc'):
+        if pid[0].isdecimal() is False:
+            continue
+        map_dir = '/proc/{}/map_files'.format(pid)
+        try:
+            f_list = os.listdir(map_dir)
+            for f_name in f_list:
+                f_realpath = os.path.realpath('{}/{}'.format(map_dir, f_name))
+                _map_set.add(f_realpath)
+        except FileNotFoundError as e:
+            errprint(e)
+            continue
+
+    return _map_set
+
+
+def lock_files(_map_set):
+    """
+    """
+    lock_counter = 0
+    size_counter = 0
+
+    for f_realpath in _map_set:
+
+        if search(r, f_realpath) is not None:
+
+            try:
+                size = os.path.getsize(f_realpath)
+            except FileNotFoundError as e:
+                errprint(e)
+                continue
+
+            if size > MAX_SIZE:
+                print('size overflow', size, f_realpath)
+                continue
+
+            try:
+                f = open(f_realpath, 'rb')
+                mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            except OSError as e:
+                errprint(e)
+                break
+
+            while True:
+                mm.read(CHUNK)
+                t = mm.tell()
+
+                if t == size:
+
+                    if debug:
+                        print(round(t / 1048576, 1), 'MiB,', f_realpath)
+
+                    lock_dict[f_realpath] = (f, mm)
+                    lock_counter += 1
+                    size_counter += size
+
+                    break
+
+    print('mlocked {} files, {} MiB'.format(lock_counter, round(
+        size_counter / 1048576, 1)))
+
+
+###############################################################################
 
 p0 = process_time()
 
@@ -59,87 +161,24 @@ mlockall()
 
 sig_list = [SIGTERM, SIGINT, SIGQUIT, SIGHUP]
 
-map_set = set()
-
 lock_dict = dict()
 
 for i in sig_list:
     signal(i, signal_handler)
 
-
-r = '^(/bin/|/sbin/|/lib/|/usr/bin/|/usr/sbin/|/usr/lib/|/usr/games/|/usr' \
-    '/lib64/|/usr/libexec/|/usr/local/bin/|/usr/local/sbin/|/usr/local/li' \
-    'b/|/opt/|/usr/share/|/etc/)'
-
-CHUNK = 1048576
-
-MAX_SIZE = 1048576 * 10
-
-for pid in os.listdir('/proc'):
-    if pid[0].isdecimal() is False:
-        continue
-    map_dir = '/proc/{}/map_files'.format(pid)
-    try:
-        f_list = os.listdir(map_dir)
-        for f_name in f_list:
-            f_realpath = os.path.realpath('{}/{}'.format(map_dir, f_name))
-            map_set.add(f_realpath)
-    except FileNotFoundError as e:
-        print(e)
-        continue
+map_set = get_mapped_set()
 
 print('found {} mapped files'.format(len(map_set)))
 
 stdout.flush()
 
-lock_counter = 0
-
-size_counter = 0
-
-for f_realpath in map_set:
-
-    if search(r, f_realpath) is not None:
-
-        try:
-            size = os.path.getsize(f_realpath)
-        except FileNotFoundError as e:
-            print(e)
-            continue
-
-        if size > MAX_SIZE:
-            print('size overflow', size, f_realpath)
-            continue
-
-        try:
-            f = open(f_realpath, 'rb')
-            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-        except OSError as e:
-            print(e)
-            break
-
-        while True:
-            mm.read(CHUNK)
-            t = mm.tell()
-
-            if t == size:
-
-                # print(round(t / 1048576, 1), 'MiB,', f_realpath)
-
-                lock_dict[f_realpath] = (f, mm)
-                lock_counter += 1
-                size_counter += size
-
-                break
-
-
-print('mlocked {} files, {} MiB'.format(lock_counter, round(
-    size_counter / 1048576, 1)))
+lock_files(map_set)
 
 try:
     num_fd = len(os.listdir('/proc/self/fd'))
     print('fd opened:', num_fd)
 except OSError as e:
-    print(e)
+    errprint(e)
 
 m = monotonic() - m0
 p = process_time() - p0
