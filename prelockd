@@ -115,8 +115,6 @@ for f_realpath in map_set:
         except OSError as e:
             print(e)
             break
-            sleep(0.1)
-            continue
 
         while True:
             mm.read(CHUNK)
