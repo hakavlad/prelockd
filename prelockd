@@ -73,7 +73,7 @@ r = '^(/bin/|/sbin/|/lib/|/usr/bin/|/usr/sbin/|/usr/lib/|/usr/games/|/usr' \
 
 CHUNK = 1048576
 
-MAX_SIZE = 1048576 * 200
+MAX_SIZE = 1048576 * 10
 
 for pid in os.listdir('/proc'):
     if pid[0].isdecimal() is False:
