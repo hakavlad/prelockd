@@ -82,14 +82,10 @@ Just restart the service after starting GUI session, and executables/libraries w
 
 ## TODO
 
-- Max memory limit for all locked files.
-- Add a config.
+- Set max memory limit for all locked files.
+- Add a config and man page.
 
 ## Report bugs and ask any questions
 
 https://github.com/hakavlad/prelockd/issues
-
-
-
-
 
