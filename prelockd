@@ -30,9 +30,10 @@ def mlockall():
             print('Exit.')
             exit(1)
         else:
-            print('All memory locked with MCL_CURRENT | MCL_FUTURE')
+            print('process memory locked with MCL_CURRENT | MCL_FUTURE')
     else:
-        print('All memory locked with MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT')
+        print('process memory locked with MCL_CURRENT | MCL_FUTURE | MCL_'
+              'ONFAULT')
 
 
 def signal_handler(signum, frame):

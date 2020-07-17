@@ -1,5 +1,7 @@
 # prelockd
 
+[![Total alerts](https://img.shields.io/lgtm/alerts/g/hakavlad/prelockd.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/hakavlad/prelockd/alerts/)
+
 prelockd is a daemon that locks mmapped binaries and libraries in memory and prevents code eviction from memory.
 
 ## What is the problem?
@@ -35,3 +37,21 @@ prelockd is a daemon that locks mmapped binaries and libraries in memory and pre
 > applications users would be interested in having such options."
 
 — [lkml](https://lkml.org/lkml/2019/8/10/161)
+
+## Install 
+
+```
+$ git clone https://github.com/hakavlad/nohang.git && cd nohang
+$ sudo make install
+$ sudo systemctl enable --now prelockd.service
+```
+
+## Uninstall
+
+```
+$ sudo make uninstall
+```
+
+## Report bugs
+
+https://github.com/hakavlad/prelockd/issues
