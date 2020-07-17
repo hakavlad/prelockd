@@ -55,7 +55,7 @@ $ sudo systemctl enable --now prelockd.service
 $ sudo make uninstall
 ```
 
-## Output exaple
+## Output example
 
 ```
 04:47:42 PC prelockd[5370]: starting prelockd
