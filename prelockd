@@ -132,8 +132,8 @@ for f_realpath in map_set:
                 break
 
 
-print('mlocked {} MiB and {} files'.format(round(
-    size_counter / 1048576, 1), lock_counter))
+print('mlocked {} files, {} MiB'.format(lock_counter, round(
+    size_counter / 1048576, 1)))
 
 try:
     num_fd = len(os.listdir('/proc/self/fd'))
