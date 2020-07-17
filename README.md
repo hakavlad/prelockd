@@ -14,7 +14,7 @@ prelockd is a daemon that locks mmapped binaries and libraries in memory and pre
 
 > Like not swap executable code when the system is near-OOM?
 
-— [phoronix](https://www.phoronix.com/forums/forum/phoronix/general-discussion/1193342-systemd-oomd-looks-like-it-will-come-together-for-systemd-247?p=1193384#post1193384)
+— [www.phoronix.com](https://www.phoronix.com/forums/forum/phoronix/general-discussion/1193342-systemd-oomd-looks-like-it-will-come-together-for-systemd-247?p=1193384#post1193384)
 
 
 > No caches means all executable pages, ro pages (e.g. fonts) are evicted
@@ -25,7 +25,7 @@ prelockd is a daemon that locks mmapped binaries and libraries in memory and pre
 > be discarded asap, other (like mmapped executable/ro pages of UI
 > utilities) will cause thrashing when evicted under high memory pressure.
 
-— [lkml](https://lkml.org/lkml/2019/8/9/294)
+— [lkml.org](https://lkml.org/lkml/2019/8/9/294)
 
 > I would like to try disabling/limiting eviction of some/all
 > file pages (for example exec pages) akin to disabling swapping, but
@@ -33,7 +33,13 @@ prelockd is a daemon that locks mmapped binaries and libraries in memory and pre
 > large RO mmapped files that would need to be addressed, but in many
 > applications users would be interested in having such options.
 
-— [lkml](https://lkml.org/lkml/2019/8/10/161)
+— [lkml.org](https://lkml.org/lkml/2019/8/10/161)
+
+> Once swap runs out, the kernel stops having a choice. It can only make room by reclaiming important caches. And this will turn bad quickly, as it will eventually include the executables/libraries that must be loaded as they are doing work!
+
+> So, we don't want to get the kernel into the situation where it must remove executables/libraries from main memory. If that happens, you can end up hitting the disk for *every* function call.
+
+— [lists.fedoraproject.org](https://lists.fedoraproject.org/archives/list/devel@lists.fedoraproject.org/message/5V2BBYBQ6AWAL7LXYLYV6XBZYGPDS5RV/)
 
 ## Install
 
@@ -49,6 +55,41 @@ $ sudo systemctl enable --now prelockd.service
 $ sudo make uninstall
 ```
 
-## Report bugs
+## Output exaple
+
+```
+04:47:42 PC prelockd[5370]: starting prelockd
+04:47:44 PC prelockd[5370]: process memory locked with MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT
+04:47:44 PC prelockd[5370]: found 962 mapped files
+04:47:45 PC prelockd[5370]: mlocked 738 files, 230.1 MiB
+04:47:45 PC prelockd[5370]: fd opened: 1481
+04:47:45 PC prelockd[5370]: startup time: 3.63s
+04:47:45 PC prelockd[5370]: process time: 2.068s
+```
+
+## How to use
+
+Just restart the service after starting GUI session, and executables/libraries will be locked.
+
+## Effects
+
+- OOM killer comes faster.
+- Fast system reclaiming after OOM.
+
+## Defaults
+
+- Maximum file size that can be locked is 10 MiB.
+
+## TODO
+
+- Max memory limit for all locked files.
+- Add a config.
+
+## Report bugs and ask any questions
 
 https://github.com/hakavlad/prelockd/issues
+
+
+
+
+
