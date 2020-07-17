@@ -1,0 +1,19 @@
+[Unit]
+Description=Daemon that locks mmapped binaries and libraries in memory
+Documentation=https://github.com/hakavlad/prelockd
+
+[Service]
+ExecStart=:TARGET_SBINDIR:/prelockd
+Restart=always
+RestartSec=0
+LimitMEMLOCK=infinity
+LimitNOFILE=infinity
+CapabilityBoundingSet=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \
+CAP_DAC_OVERRIDE CAP_SYS_RESOURCE
+ProtectSystem=strict
+PrivateDevices=true
+PrivateNetwork=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
