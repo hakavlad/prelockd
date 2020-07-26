@@ -72,8 +72,7 @@ $ sudo make uninstall
 Just restart the service after starting GUI session, and executables/libraries will be locked.
 
 ## Effects
-
-- OOM killer comes faster.
+- OOM killer comes faster (especially with noswap).
 - Fast system reclaiming after OOM.
 
 ## Demo
@@ -81,19 +80,32 @@ Just restart the service after starting GUI session, and executables/libraries w
 https://www.youtube.com/watch?v=vykUrP1UvcI
 
 On this video: running fast memory hogs in a loop on Debian 10 GNOME, 4 GiB MemTotal without swap space.
-
-- 1. prelockd enabled: about 500 MiB mlocked. Starting `while true; do tail /dev/zero; done`: no freezes. The OOM killer comes quickly, the system recovers quickly.
-- 2. prelockd disabled: system hangs.
+- prelockd enabled: about 500 MiB mlocked. Starting `while true; do tail /dev/zero; done`: no freezes. The OOM killer comes quickly, the system recovers quickly.
+- prelockd disabled: system hangs with `while true; do tail /dev/zero; done`.
 
 ## Config
 
-$SYSCONFDIR/prelockd/prelockd.conf
+`$SYSCONFDIR/prelockd/prelockd.conf`
+
+https://github.com/hakavlad/prelockd/blob/master/prelockd.conf
 
 (to be documented)
+
+## How to configure
+
+Edit the config and restart the daemon.
+
+## Save snapshot
+
+Run `sudo prelockd -w` to save list of current mmapped files in `/var/lib/prelockd/saved_snapshot`. This list may be mlocked at the next `prelockd` startup.
 
 ## Defaults
 
 - Maximum file size that can be locked is 10 MiB. Self RSS limit: 5% MemTotal or 512 MiB.
+
+## Debug
+
+Set `$DEBUG = True` in the config.
 
 ## TODO
 
