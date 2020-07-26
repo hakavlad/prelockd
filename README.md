@@ -76,14 +76,28 @@ Just restart the service after starting GUI session, and executables/libraries w
 - OOM killer comes faster.
 - Fast system reclaiming after OOM.
 
+## Demo
+
+https://www.youtube.com/watch?v=vykUrP1UvcI
+
+On this video: running fast memory hogs in a loop on Debian 10 GNOME, 4 GiB MemTotal without swap space.
+
+- 1. prelockd enabled: about 500 MiB mlocked. Starting `while true; do tail /dev/zero; done`: no freezes. The OOM killer comes quickly, the system recovers quickly.
+- 2. prelockd disabled: system hangs.
+
+## Config
+
+$SYSCONFDIR/prelockd/prelockd.conf
+
+(to be documented)
+
 ## Defaults
 
-- Maximum file size that can be locked is 10 MiB.
+- Maximum file size that can be locked is 10 MiB. Self RSS limit: 5% MemTotal or 512 MiB.
 
 ## TODO
 
-- Set max memory limit for all locked files.
-- Add a config and man page.
+- Add and a man page.
 
 ## Report bugs and ask any questions
 

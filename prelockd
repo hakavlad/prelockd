@@ -4,33 +4,22 @@
 import os
 import mmap
 from re import search
+from sre_constants import error as invalid_re
 from time import sleep, monotonic, process_time
-from sys import stdout, stderr, exit
+from sys import stdout, stderr, exit, argv
 from signal import signal, SIGTERM, SIGINT, SIGQUIT, SIGHUP
 from ctypes import CDLL
 
 
-###############################################################################
-
-
-# lock file realpath if it matches r
-r = '^(/bin/|/sbin/|/lib/|/usr/bin/|/usr/sbin/|/usr/lib/|/usr/games/|/usr' \
-    '/lib64/|/usr/libexec/|/usr/local/bin/|/usr/local/sbin/|/usr/local/li' \
-    'b/|/opt/|/usr/share/|/etc/)'
-
-
-# read files by 1 MiB
-CHUNK = 1048576
-
-
-# max file size that can be locked
-MAX_SIZE = 1048576 * 10
-
-
-debug = False
-
-
-###############################################################################
+def valid_re(reg_exp):
+    """
+    Validate regular expression.
+    """
+    try:
+        search(reg_exp, '')
+    except invalid_re:
+        errprint('Invalid config: invalid regexp: {}'.format(reg_exp))
+        exit(1)
 
 
 def errprint(*text):
@@ -39,125 +28,486 @@ def errprint(*text):
     print(*text, file=stderr, flush=True)
 
 
+def string_to_float_convert_test(string):
+    """
+    Try to interprete string values as floats.
+    """
+    try:
+        return float(string)
+    except ValueError:
+        return None
+
+
 def mlockall():
     """
-    lock process memory
+    Lock process memory.
     """
     MCL_CURRENT = 1
-    MCL_FUTURE = 2
-    MCL_ONFAULT = 4
 
     libc = CDLL('libc.so.6', use_errno=True)
-    result = libc.mlockall(
-        MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT
-    )
+
+    result = libc.mlockall(MCL_CURRENT)
 
     if result != 0:
-        result = libc.mlockall(
-            MCL_CURRENT | MCL_FUTURE
-        )
-        if result != 0:
-            errprint(
-                'ERROR: cannot lock all memory: [Errno {}]'.format(result))
-            errprint('Exit.')
-            exit(1)
-        else:
-            print('process memory locked with MCL_CURRENT | MCL_FUTURE')
+        errprint('ERROR: cannot lock process memory: [Errno {}]'.format(
+            result))
+        errprint('Exit.')
+        exit(1)
     else:
-        print('process memory locked with MCL_CURRENT | MCL_FUTURE | MCL_'
-              'ONFAULT')
+        if debug:
+            print('process memory locked with MCL_CURRENT')
 
 
 def signal_handler(signum, frame):
     """
-    handle signals: close fd and exit
+    Handle signals: close fd and exit.
     """
     if len(lock_dict) > 0:
         for i in lock_dict:
-            lock_dict[i][1].close()
-            lock_dict[i][0].close()
+            lock_dict[i][1].close()  # close mm
+            lock_dict[i][0].close()  # close fd
     print('Got signal {}, exit.'.format(signum))
     exit()
 
 
-def get_mapped_set():
+def get_current_set():
     """
     """
-    _map_set = set()
+    m0 = monotonic()
+    p0 = process_time()
 
+    if debug:
+        print('Looking for mapped files...')
+
+    new_map_set = set()
     for pid in os.listdir('/proc'):
         if pid[0].isdecimal() is False:
             continue
-        map_dir = '/proc/{}/map_files'.format(pid)
+        map_dir = '/proc/' + pid + '/map_files/'
         try:
-            f_list = os.listdir(map_dir)
+            try:
+                f_list = os.listdir(map_dir)
+            except PermissionError as e:
+                errprint(e)
+                exit(1)
             for f_name in f_list:
-                f_realpath = os.path.realpath('{}/{}'.format(map_dir, f_name))
-                _map_set.add(f_realpath)
+                f_realpath = os.path.realpath(map_dir + f_name)
+                new_map_set.add(f_realpath)
         except FileNotFoundError as e:
             errprint(e)
             continue
 
-    return _map_set
+    current_map_set = set()
+    for path in new_map_set:
+        if os.path.exists(path):
+            current_map_set.add(path)
+        else:
+            if debug:
+                print('skip:', path)
+
+    if debug:
+        list_d = list(current_map_set)
+        list_d.sort()
+        for path in list_d:
+            print('mapped:', path)
+
+    m1 = monotonic()
+    p1 = process_time()
+
+    if debug:
+        print('Found {} mapped files in {}s (process time: {}s)'.format(len(
+            current_map_set), round(m1 - m0, 3), round(p1 - p0, 3)))
+
+    return current_map_set
+
+
+def is_mem_available_ok():
+    """
+    """
+    while True:
+        a = check_mem_available()
+        if a < min_mem_available:
+            if debug:
+                print('Low available memory, sleeping 3s')
+            sleep(3)
+            continue
+        else:
+            break
 
 
 def lock_files(_map_set):
     """
     """
+    if debug:
+        print('Mmapping, reading ang locking files...')
+
     lock_counter = 0
-    size_counter = 0
+    mm_read_size_counter = 0
+    counter2 = 0
 
-    for f_realpath in _map_set:
-
-        if search(r, f_realpath) is not None:
-
+    di = dict()
+    for rp in _map_set:
+        rp = str(rp)
+        if search(r, rp) is not None:
             try:
-                size = os.path.getsize(f_realpath)
+                s = os.path.getsize(rp)
+                if s > 0:
+                    di[rp] = s
             except FileNotFoundError as e:
-                errprint(e)
-                continue
+                if debug:
+                    print(e)
+        else:
+            if debug:
+                print("skip (doesn't match $LOCK_RE): " + rp)
+    list_d = list(di.items())
+    list_d.sort(key=lambda i: i[1])
 
-            if size > MAX_SIZE:
-                print('size overflow', size, f_realpath)
-                continue
+    cont = True
+
+    for f_realpath, _ in list_d:
+
+        try:
+            size = os.path.getsize(f_realpath)
+        except FileNotFoundError as e:
+            errprint(e)
+            continue
+
+        if cont is False:
+            if debug is True:
+                print('skip (self RSS > $MAX_SELF_RSS):', round(
+                    size / 1048576, 1), 'MiB', f_realpath)
+            continue
+
+        if size > MAX_SIZE:
+            if debug is True:
+                print('skip (file size > $MAX_FILE_SIZE_MIB):', round(
+                    size / 1048576, 1), 'MiB,', f_realpath)
+            continue
+
+        try:
+            f = open(f_realpath, 'rb')
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        except OSError as e:
+            errprint(e)
+            break
+
+        t = 0
+
+        tell_pre = 0
+
+        while True:
 
             try:
-                f = open(f_realpath, 'rb')
-                mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                rss = get_self_rss()
             except OSError as e:
                 errprint(e)
                 break
 
-            while True:
-                mm.read(CHUNK)
-                t = mm.tell()
+            if rss > max_self_rss:
+                cont = False
+                x = t / size * 100
+                if debug is True:
+                    print('read {} MiB ({}%) {}'.format(round(
+                        t / 1048576, 1), round(x, 1), f_realpath))
+                print('Self RSS: {} MiB'.format(round(rss / 1024 / 1024, 1)))
+                break
 
-                if t == size:
+            mm.read(CHUNK)
+            t = mm.tell()
+            last_chunk = t - tell_pre
+            tell_pre = t
+            mm_read_size_counter += last_chunk
+            counter2 += last_chunk
+            if counter2 >= 20 * MIB:
 
-                    if debug:
-                        print(round(t / 1048576, 1), 'MiB,', f_realpath)
+                try:
+                    is_mem_available_ok()
+                except OSError as e:
+                    errprint(e)
 
-                    lock_dict[f_realpath] = (f, mm)
-                    lock_counter += 1
-                    size_counter += size
+                if debug:
+                    print('lock next', round(counter2 / MIB, 1), 'MiB')
+                mlockall()
+                counter2 = 0
 
-                    break
+            if t == size:
 
-    print('mlocked {} files, {} MiB'.format(lock_counter, round(
-        size_counter / 1048576, 1)))
+                if debug is True:
+                    print('read', round(t / MIB, 1), 'MiB', f_realpath)
+
+                lock_dict[f_realpath] = (f, mm)
+                lock_counter += 1
+
+                break
+
+    try:
+        is_mem_available_ok()
+    except OSError as e:
+        errprint(e)
+
+    if debug:
+        print('lock next', round(counter2 / MIB, 1), 'MiB')
+
+    mlockall()
+
+    print('locked {} files, {} MiB'.format(lock_counter, round(
+        mm_read_size_counter / MIB, 1)))
+
+
+def write_snapshot():
+    """
+    """
+    map_set = get_current_set()
+    map_list = sorted(list(map_set))
+    print('Saving mapped files...')
+    try:
+        with open(saved_path, 'w') as f:
+            for line in map_list:
+                f.write(line + '\n')
+    except FileNotFoundError:
+        os.mkdir(saved_dir)
+        os.chmod(saved_dir, mode=0o700)
+        with open(saved_path, 'w') as f:
+            for line in map_list:
+                f.write(line + '\n')
+    print('OK, mmapped files list has been saved in ' + saved_path)
+
+
+def get_saved_set():
+    """
+    """
+    if debug:
+        print('Looking for saved files...')
+
+    saved_set = set()
+
+    try:
+        with open(saved_path) as f:
+            for line in f:
+                saved_set.add(line[:-1])
+    except FileNotFoundError as e:
+        errprint(e)
+
+    new_saved_set = set()
+
+    for path in saved_set:
+        if os.path.exists(path):
+            new_saved_set.add(path)
+        else:
+            if debug:
+                print('skip:', path)
+    if debug:
+        list_d = list(new_saved_set)
+        list_d.sort()
+        for path in list_d:
+            print('saved:', path)
+        print('Found {} saved paths'.format(len(new_saved_set)))
+
+    return new_saved_set
+
+
+def check_mem_available():
+    """
+    """
+    with open('/proc/meminfo') as f:
+        for n, line in enumerate(f):
+            if n == mem_available_index:
+                mem_available = int(line.split(':')[1][:-4])
+    return mem_available
+
+
+def get_self_rss():
+    """
+    """
+    with open('/proc/self/statm') as f:
+        return int(f.readline().split(' ')[1]) * SC_PAGESIZE
 
 
 ###############################################################################
 
-p0 = process_time()
 
+saved_dir = '/var/lib/prelockd'
+saved_path = '/var/lib/prelockd/saved_snapshot'
+debug = True
+
+
+a = argv[1:]
+la = len(a)
+if la == 0:
+    errprint('invalid input: missing CLI options')
+    exit(1)
+elif la == 1:
+    if a[0] == '-p':
+        get_current_set()
+        exit()
+    elif a[0] == '-w':
+        write_snapshot()
+        exit()
+    else:
+        errprint('invalid input')
+        exit(1)
+elif la == 2:
+    if a[0] == '-c':
+        config = a[1]
+    else:
+        errprint('invalid input')
+        exit(1)
+else:
+    errprint('invalid input: too many options')
+    exit(1)
+
+
+with open('/proc/meminfo') as f:
+    mem_list = f.readlines()
+    mem_total = int(mem_list[0].split(':')[1][:-4])
+
+mem_list_names = []
+
+for s in mem_list:
+    mem_list_names.append(s.split(':')[0])
+try:
+    mem_available_index = mem_list_names.index('MemAvailable')
+except ValueError:
+    errprint('Your Linux kernel is too old, Linux 3.14+ required\nExit')
+
+SC_PAGESIZE = os.sysconf(os.sysconf_names['SC_PAGESIZE'])
+
+
+config_dict = dict()
+
+try:
+    with open(config) as f:
+        for line in f:
+            if line[0] == '$' and '=' in line:
+                key, _, value = line.partition('=')
+                key = key.rstrip()
+                value = value.strip()
+                if key in config_dict:
+                    errprint('config key {} duplication'.format(key))
+                    exit(1)
+                config_dict[key] = value
+except (PermissionError, UnicodeDecodeError, IsADirectoryError,
+        IndexError, FileNotFoundError) as e:
+    errprint('Invalid config: {}. Exit.'.format(e))
+    exit(1)
+
+
+if '$DEBUG' in config_dict:
+    debug = config_dict['$DEBUG']
+    if debug == 'True':
+        debug = True
+    elif debug == 'False':
+        debug = False
+    else:
+        errprint('invalid $DEBUG value')
+        exit(1)
+else:
+    errprint('missing $DEBUG key')
+    exit(1)
+
+
+if '$LOCK_CURRENT_MAPPED' in config_dict:
+    lock_current_mapped = config_dict['$LOCK_CURRENT_MAPPED']
+    if lock_current_mapped == 'True':
+        lock_current_mapped = True
+    elif lock_current_mapped == 'False':
+        lock_current_mapped = False
+    else:
+        errprint('invalid $LOCK_CURRENT_MAPPED value')
+        exit(1)
+else:
+    errprint('missing $LOCK_CURRENT_MAPPED key')
+    exit(1)
+
+
+if '$LOCK_SAVED_MAPPED' in config_dict:
+    lock_saved_mapped = config_dict['$LOCK_SAVED_MAPPED']
+    if lock_saved_mapped == 'True':
+        lock_saved_mapped = True
+    elif lock_saved_mapped == 'False':
+        lock_saved_mapped = False
+    else:
+        errprint('invalid $LOCK_SAVED_MAPPED value')
+        exit(1)
+else:
+    errprint('missing $LOCK_SAVED_MAPPED key')
+    exit(1)
+
+
+if '$MAX_FILE_SIZE_MIB' in config_dict:
+    string = config_dict['$MAX_FILE_SIZE_MIB']
+    max_file_size_mib = string_to_float_convert_test(string)
+    if max_file_size_mib is None:
+        errprint('invalid $MAX_FILE_SIZE_MIB value')
+        exit(1)
+    max_file_size = int(max_file_size_mib * 1048576)
+else:
+    errprint('missing $MAX_FILE_SIZE_MIB key')
+    exit(1)
+
+
+if '$LOCK_RE' in config_dict:
+    lock_re = config_dict['$LOCK_RE']
+    valid_re(lock_re)
+else:
+    errprint('missing $LOCK_RE key')
+    exit(1)
+
+
+if '$MAX_SELF_RSS_PERCENT' in config_dict:
+    string = config_dict['$MAX_SELF_RSS_PERCENT']
+    max_self_rss_percent = string_to_float_convert_test(string)
+    if max_self_rss_percent is None:
+        errprint('invalid $MAX_SELF_RSS_PERCENT value')
+        exit(1)
+    max_self_rss = int(mem_total * max_self_rss_percent / 100) * 1024
+else:
+    errprint('missing $MAX_FILE_SIZE_MIB key')
+    exit(1)
+
+
+if '$MAX_SELF_RSS_MIB' in config_dict:
+    string = config_dict['$MAX_SELF_RSS_MIB']
+    max_self_rss_mib = string_to_float_convert_test(string)
+    if max_self_rss_mib is None:
+        errprint('invalid $MAX_SELF_RSS_MIB value')
+        exit(1)
+    max_self_rss2 = int(max_file_size_mib * 1048576)
+else:
+    errprint('missing $MAX_SELF_RSS_MIB key')
+    exit(1)
+
+
+if max_self_rss2 > max_self_rss:
+    max_self_rss = max_self_rss2
+
+
+config = os.path.abspath(config)
+
+print('Starting prelockd with the config: {}'.format(config))
+
+
+MIB = 1024 * 1024
+
+min_mem_available = 20 * 1024
+
+
+r = lock_re
+
+# read files by 1 MiB
+CHUNK = MIB
+
+# max file size that can be locked
+MAX_SIZE = max_file_size
+
+
+###############################################################################
+
+
+p0 = process_time()
 m0 = monotonic()
 
-print('starting prelockd')
-
 stdout.flush()
-
-mlockall()
 
 sig_list = [SIGTERM, SIGINT, SIGQUIT, SIGHUP]
 
@@ -166,13 +516,24 @@ lock_dict = dict()
 for i in sig_list:
     signal(i, signal_handler)
 
-map_set = get_mapped_set()
 
-print('found {} mapped files'.format(len(map_set)))
+final_set = set()
 
-stdout.flush()
+if lock_current_mapped:
+    current_set = get_current_set()
+    final_set.update(current_set)
 
-lock_files(map_set)
+if lock_saved_mapped:
+    saved_set = get_saved_set()
+    final_set.update(saved_set)
+
+fs = len(final_set)
+
+if fs == 0:
+    print('Nothing to do!')
+    exit()
+
+lock_files(final_set)
 
 try:
     num_fd = len(os.listdir('/proc/self/fd'))
@@ -183,10 +544,11 @@ except OSError as e:
 m = monotonic() - m0
 p = process_time() - p0
 
+print('self RSS:', round(get_self_rss() / MIB, 1), 'MiB')
 print('startup time: {}s'.format(round(m, 3)))
 print('process time: {}s'.format(round(p, 3)))
 
 stdout.flush()
 
 while True:
-    sleep(99999)
+    sleep(9999)

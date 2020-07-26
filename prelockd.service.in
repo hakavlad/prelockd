@@ -1,13 +1,11 @@
 [Unit]
-Description=Daemon that locks mmapped binaries and libraries in memory
+Description=Daemon that prevents eviction of executables/libraries from memory
 Documentation=https://github.com/hakavlad/prelockd
 
 [Service]
-ExecStart=:TARGET_SBINDIR:/prelockd
-Restart=always
-RestartSec=0
+ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd/prelockd.conf
 TasksMax=1
-OOMScoreAdjust=-200
+OOMScoreAdjust=-100
 LimitMEMLOCK=infinity
 LimitNOFILE=infinity
 CapabilityBoundingSet=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \

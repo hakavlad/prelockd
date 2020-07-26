@@ -2,6 +2,7 @@ NAME = prelockd
 
 DESTDIR ?=
 PREFIX ?=         /usr/local
+SYSCONFDIR ?=     /usr/local/etc
 SYSTEMDUNITDIR ?= /usr/local/lib/systemd/system
 
 SBINDIR ?= $(PREFIX)/sbin
@@ -15,8 +16,13 @@ base:
 	install -d $(DESTDIR)$(SBINDIR)
 	install -m0755 $(NAME) $(DESTDIR)$(SBINDIR)/$(NAME)
 
+	install -d $(DESTDIR)$(SYSCONFDIR)/$(NAME)
+	install -m0644 $(NAME).conf $(DESTDIR)$(SYSCONFDIR)/$(NAME)/$(NAME).conf
+
 	install -d $(DESTDIR)$(DOCDIR)
 	install -m0644 README.md $(DESTDIR)$(DOCDIR)/README.md
+
+	install -dm0700 $(DESTDIR)/var/lib/prelockd
 
 units:
 	install -d $(DESTDIR)$(SYSTEMDUNITDIR)
@@ -39,6 +45,8 @@ install: base units chcon daemon-reload
 uninstall-base:
 	rm -fv $(DESTDIR)$(SBINDIR)/$(NAME)
 	rm -fvr $(DESTDIR)$(DOCDIR)/
+	rm -fvr $(DESTDIR)$(SYSCONFDIR)/
+	rm -fvr $(DESTDIR)/var/lib/$(NAME)/
 
 uninstall-units:
 	# 'make uninstall-units' must not fail with error if systemctl is unavailable or returns error
