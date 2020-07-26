@@ -109,7 +109,7 @@ Set `$DEBUG = True` in the config.
 
 ## TODO
 
-- Add and a man page.
+- Add a man page.
 
 ## Report bugs and ask any questions
 
