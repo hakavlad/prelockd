@@ -325,6 +325,9 @@ def get_self_rss():
 
 ###############################################################################
 
+MIB = 1024 * 1024
+
+min_mem_available = 20 * 1024
 
 saved_dir = '/var/lib/prelockd'
 saved_path = '/var/lib/prelockd/saved_snapshot'
@@ -360,6 +363,7 @@ else:
 with open('/proc/meminfo') as f:
     mem_list = f.readlines()
     mem_total = int(mem_list[0].split(':')[1][:-4])
+
 
 mem_list_names = []
 
@@ -460,7 +464,7 @@ if '$MAX_SELF_RSS_PERCENT' in config_dict:
     if max_self_rss_percent is None:
         errprint('invalid $MAX_SELF_RSS_PERCENT value')
         exit(1)
-    max_self_rss = int(mem_total * max_self_rss_percent / 100) * 1024
+    max_self_rss_pc = int(mem_total * max_self_rss_percent / 100) * 1024
 else:
     errprint('missing $MAX_FILE_SIZE_MIB key')
     exit(1)
@@ -472,24 +476,33 @@ if '$MAX_SELF_RSS_MIB' in config_dict:
     if max_self_rss_mib is None:
         errprint('invalid $MAX_SELF_RSS_MIB value')
         exit(1)
-    max_self_rss2 = int(max_file_size_mib * 1048576)
+    max_self_rss_mib = int(max_self_rss_mib * 1048576)
 else:
     errprint('missing $MAX_SELF_RSS_MIB key')
     exit(1)
 
 
-if max_self_rss2 > max_self_rss:
-    max_self_rss = max_self_rss2
+if max_self_rss_mib <= max_self_rss_pc:
+    max_self_rss = max_self_rss_mib
+else:
+    max_self_rss = max_self_rss_pc
 
 
 config = os.path.abspath(config)
 
+
+if debug:
+    print('$MAX_SELF_RSS_PERCENT:', round(max_self_rss_pc / MIB, 1), '(MiB)')
+    print('$MAX_SELF_RSS_MIB:    ', round(max_self_rss_mib / MIB, 1))
+    print('max_self_rss:         ', round(max_self_rss / MIB, 1), '(MiB)')
+    print('$DEBUG:               ', debug)
+    print('$LOCK_CURRENT_MAPPED: ', lock_current_mapped)
+    print('$LOCK_SAVED_MAPPED:   ', lock_saved_mapped)
+    print('$MAX_FILE_SIZE_MIB:   ', max_file_size / MIB)
+    print('$LOCK_RE:             ', lock_re)
+
+
 print('Starting prelockd with the config: {}'.format(config))
-
-
-MIB = 1024 * 1024
-
-min_mem_available = 20 * 1024
 
 
 r = lock_re
