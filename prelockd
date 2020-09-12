@@ -42,11 +42,11 @@ def mlockall():
     """
     Lock process memory.
     """
-    MCL_CURRENT = 1
+    MCL_FUTURE = 2
 
     libc = CDLL('libc.so.6', use_errno=True)
 
-    result = libc.mlockall(MCL_CURRENT)
+    result = libc.mlockall(MCL_FUTURE)
 
     if result != 0:
         errprint('ERROR: cannot lock process memory: [Errno {}]'.format(
@@ -55,7 +55,7 @@ def mlockall():
         exit(1)
     else:
         if debug:
-            print('process memory locked with MCL_CURRENT')
+            print('process memory locked with MCL_FUTURE')
 
 
 def signal_handler(signum, frame):
@@ -121,31 +121,17 @@ def get_current_set():
     return current_map_set
 
 
-def is_mem_available_ok():
-    """
-    """
-    while True:
-        a = check_mem_available()
-        if a < min_mem_available:
-            if debug:
-                print('Low available memory, sleeping 3s')
-            sleep(3)
-            continue
-        else:
-            break
-
-
 def lock_files(_map_set):
     """
     """
     if debug:
-        print('Mmapping, reading ang locking files...')
+        print('mapping ang locking files...')
 
     lock_counter = 0
     mm_read_size_counter = 0
-    counter2 = 0
 
     di = dict()
+
     for rp in _map_set:
         rp = str(rp)
         if search(r, rp) is not None:
@@ -162,8 +148,6 @@ def lock_files(_map_set):
     list_d = list(di.items())
     list_d.sort(key=lambda i: i[1])
 
-    cont = True
-
     for f_realpath, _ in list_d:
 
         try:
@@ -172,86 +156,42 @@ def lock_files(_map_set):
             errprint(e)
             continue
 
-        if cont is False:
-            if debug is True:
-                print('skip (self RSS > $MAX_SELF_RSS):', round(
-                    size / 1048576, 1), 'MiB', f_realpath)
-            continue
-
         if size > MAX_SIZE:
-            if debug is True:
-                print('skip (file size > $MAX_FILE_SIZE_MIB):', round(
-                    size / 1048576, 1), 'MiB,', f_realpath)
-            continue
+            if debug:
+                print('skip (file size {}M > $MAX_FILE_SIZE) {}'.format(round(
+                    size / MIB, 1), f_realpath))
+                continue
+            else:
+                break
 
         try:
-            f = open(f_realpath, 'rb')
-            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            rss = get_self_rss()
         except OSError as e:
             errprint(e)
             break
 
-        t = 0
-
-        tell_pre = 0
-
-        while True:
-
-            try:
-                rss = get_self_rss()
-            except OSError as e:
-                errprint(e)
+        if rss + size > max_self_rss:
+            if debug:
+                print('skip (rss ({}M) + size ({}M) > max_self_rss) {}'.format(
+                    round(rss / MIB, 1), round(size / MIB, 1), f_realpath))
+                continue
+            else:
                 break
 
-            if rss > max_self_rss:
-                cont = False
-                x = t / size * 100
-                if debug is True:
-                    print('read {} MiB ({}%) {}'.format(round(
-                        t / 1048576, 1), round(x, 1), f_realpath))
-                print('Self RSS: {} MiB'.format(round(rss / 1024 / 1024, 1)))
-                break
+        try:
+            if debug:
+                print('locking ({}M) {}'.format(
+                    round(size / MIB, 1), f_realpath))
+            f = open(f_realpath, 'rb')
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            lock_dict[f_realpath] = (f, mm)
+            lock_counter += 1
+            mm_read_size_counter += size
+        except OSError as e:
+            errprint(e)
+            break
 
-            mm.read(CHUNK)
-            t = mm.tell()
-            last_chunk = t - tell_pre
-            tell_pre = t
-            mm_read_size_counter += last_chunk
-            counter2 += last_chunk
-            if counter2 >= 20 * MIB:
-
-                try:
-                    is_mem_available_ok()
-                except OSError as e:
-                    errprint(e)
-
-                if debug:
-                    print('lock next', round(counter2 / MIB, 1), 'MiB')
-                mlockall()
-                counter2 = 0
-
-            if t == size:
-
-                if debug is True:
-                    print('read', round(t / MIB, 1), 'MiB', f_realpath)
-
-                lock_dict[f_realpath] = (f, mm)
-                lock_counter += 1
-
-                break
-
-    try:
-        is_mem_available_ok()
-    except OSError as e:
-        errprint(e)
-
-    if debug:
-        print('lock next', round(counter2 / MIB, 1), 'MiB')
-
-    mlockall()
-
-    print('locked {} files, {} MiB'.format(lock_counter, round(
-        mm_read_size_counter / MIB, 1)))
+    print('locked {}M files'.format(round(mm_read_size_counter / MIB, 1)))
 
 
 def write_snapshot():
@@ -304,16 +244,6 @@ def get_saved_set():
         print('Found {} saved paths'.format(len(new_saved_set)))
 
     return new_saved_set
-
-
-def check_mem_available():
-    """
-    """
-    with open('/proc/meminfo') as f:
-        for n, line in enumerate(f):
-            if n == mem_available_index:
-                mem_available = int(line.split(':')[1][:-4])
-    return mem_available
 
 
 def get_self_rss():
@@ -487,9 +417,9 @@ if max_self_rss_mib <= max_self_rss_pc:
 else:
     max_self_rss = max_self_rss_pc
 
-
 config = os.path.abspath(config)
 
+print('Starting prelockd with the config: {}'.format(config))
 
 if debug:
     print('$MAX_SELF_RSS_PERCENT:', round(max_self_rss_pc / MIB, 1), '(MiB)')
@@ -501,14 +431,9 @@ if debug:
     print('$MAX_FILE_SIZE_MIB:   ', max_file_size / MIB)
     print('$LOCK_RE:             ', lock_re)
 
-
-print('Starting prelockd with the config: {}'.format(config))
-
+mlockall()
 
 r = lock_re
-
-# read files by 1 MiB
-CHUNK = MIB
 
 # max file size that can be locked
 MAX_SIZE = max_file_size
@@ -557,9 +482,8 @@ except OSError as e:
 m = monotonic() - m0
 p = process_time() - p0
 
-print('self RSS:', round(get_self_rss() / MIB, 1), 'MiB')
-print('startup time: {}s'.format(round(m, 3)))
-print('process time: {}s'.format(round(p, 3)))
+print('self RSS: {}M, startup time: {}s, process time: {}s'.format(
+    round(get_self_rss() / MIB, 1), round(m, 1), round(p, 1)))
 
 stdout.flush()
 
