@@ -4,6 +4,7 @@ Documentation=https://github.com/hakavlad/prelockd
 
 [Service]
 ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd/prelockd.conf
+Slice=prelockd.slice
 TasksMax=1
 OOMScoreAdjust=-100
 LimitMEMLOCK=infinity
