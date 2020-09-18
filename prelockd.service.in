@@ -4,12 +4,13 @@ Documentation=https://github.com/hakavlad/prelockd
 
 [Service]
 ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd/prelockd.conf
-Slice=prelockd.slice
+User=prelockd
+Slice=unevictable.slice
 TasksMax=1
 OOMScoreAdjust=-100
 LimitMEMLOCK=infinity
 LimitNOFILE=infinity
-CapabilityBoundingSet=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \
+AmbientCapabilities=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \
 CAP_DAC_OVERRIDE CAP_SYS_RESOURCE
 ProtectSystem=strict
 PrivateDevices=true
@@ -26,6 +27,8 @@ LockPersonality=yes
 ProtectHostname=true
 ProtectClock=true
 ProtectKernelLogs=true
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
 
 [Install]
 WantedBy=multi-user.target
