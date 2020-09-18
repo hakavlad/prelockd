@@ -49,7 +49,7 @@ install: base units useradd chcon daemon-reload
 uninstall-base:
 	rm -fv $(DESTDIR)$(SBINDIR)/$(NAME)
 	rm -fvr $(DESTDIR)$(DOCDIR)/
-	rm -fvr $(DESTDIR)$(SYSCONFDIR)/
+	rm -fvr $(DESTDIR)$(SYSCONFDIR)/$(NAME)/
 	rm -fvr $(DESTDIR)/var/lib/$(NAME)/
 
 uninstall-units:
