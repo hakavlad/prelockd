@@ -3,7 +3,7 @@ Description=Daemon that prevents eviction of executables/libraries from memory
 Documentation=https://github.com/hakavlad/prelockd
 
 [Service]
-ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd/prelockd.conf
+ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd.conf
 User=prelockd
 Slice=unevictable.slice
 TasksMax=1
@@ -12,6 +12,7 @@ LimitMEMLOCK=infinity
 LimitNOFILE=infinity
 AmbientCapabilities=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \
 CAP_DAC_OVERRIDE CAP_SYS_RESOURCE
+ReadWritePaths=/var/lib/prelockd
 ProtectSystem=strict
 PrivateDevices=true
 PrivateNetwork=true

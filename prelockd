@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """prelockd"""
 
+
 import os
 import mmap
 from re import search
 from sre_constants import error as invalid_re
 from time import sleep, monotonic, process_time
-from sys import stdout, stderr, exit, argv
 from signal import signal, SIGTERM, SIGINT, SIGQUIT, SIGHUP
+from sys import stdout, stderr, exit, argv
+from json import dump, load
 from ctypes import CDLL
 
 
@@ -60,14 +62,55 @@ def mlockall():
 
 def signal_handler(signum, frame):
     """
-    Handle signals: close fd and exit.
+    Handle signals: close fd, dump d and t, exit.
     """
-    if len(lock_dict) > 0:
-        for i in lock_dict:
-            lock_dict[i][1].close()  # close mm
-            lock_dict[i][0].close()  # close fd
-    print('Got signal {}, exit.'.format(signum))
+    print('Got signal {}'.format(signum))
+    print('Unlocking files and dumping saved snapshots')
+    unlock_files(lock_dict)
+
+    lock_t = round(monotonic() - var_dict['lock_t0'], 1)
+    # print('lock_t:', lock_t)
+
+    dump_d['t'] = lock_t
+    dump_d['d'] = d
+    jdump(dump_path, dump_d)
+
+    print('Exit.')
     exit()
+
+
+def get_pid_list():
+    """
+    """
+    pid_list = []
+    for pid in os.listdir('/proc'):
+        if pid[0].isdecimal() is False:
+            continue
+        pid_list.append(pid)
+    pid_list.remove(self_pid)
+    return pid_list
+
+
+def get_uptime():
+    """
+    """
+    with open('/proc/uptime', 'rb', buffering=0) as f:
+        return float(f.read().decode().split(' ')[0])
+
+
+def get_uniq_id(pid):
+    """
+    """
+    try:
+        with open('/proc/' + pid + '/stat', 'rb', buffering=0) as f:
+            x, _, y = f.read().decode('utf-8', 'ignore').rpartition(')')
+            if y[-7:] == ' 0 0 0\n':
+                return None  # skip kthreads
+            starttime = y.split(' ')[20]
+            uniq_id = starttime + '+' + x
+            return starttime, uniq_id
+    except (FileNotFoundError, ProcessLookupError):
+        return None
 
 
 def get_current_set():
@@ -80,25 +123,72 @@ def get_current_set():
         print('Looking for mapped files...')
 
     new_map_set = set()
-    for pid in os.listdir('/proc'):
-        if pid[0].isdecimal() is False:
+
+    pid_list = get_pid_list()
+
+    uptime = get_uptime()
+
+    uniq_set = set()
+
+    for pid in pid_list:
+
+        s = get_uniq_id(pid)
+
+        if s is None:
             continue
-        map_dir = '/proc/' + pid + '/map_files/'
+
+        uniq_map_set = set()
+
+        starttime, uniq_id = s
+
+        uniq_set.add(uniq_id)
+
+        lifetime = uptime - float(starttime) / SC_CLK_TCK
+
+        if uniq_id in uniq_map_d:
+            new_map_set.update(uniq_map_d[uniq_id])
+            continue
+
+        if debug:
+            print('finding mapped files for new process:', uniq_id)
+
+        maps = '/proc/' + pid + '/maps'
+
         try:
             try:
-                f_list = os.listdir(map_dir)
+                with open(maps, 'rb', buffering=0) as f:
+                    lines_list = f.read().decode('utf-8', 'ignore').split('\n')
             except PermissionError as e:
                 errprint(e)
                 exit(1)
-            for f_name in f_list:
-                f_realpath = os.path.realpath(map_dir + f_name)
-                new_map_set.add(f_realpath)
+
+            for line in lines_list:
+                w_root = line.partition('/')[2]
+                uniq_map_set.add(w_root)
+
+            new_map_set.update(uniq_map_set)
+
+            if lifetime >= min_save_lifetime:
+                uniq_map_d[uniq_id] = uniq_map_set
+
         except FileNotFoundError as e:
             errprint(e)
             continue
 
+    uniq_map_d_set = set(uniq_map_d)
+    dead_uniq_set = uniq_map_d_set - uniq_set
+    for uniq_id in dead_uniq_set:
+        del uniq_map_d[uniq_id]
+
+    new_map_set.remove('')
+
+    final_map_set = set()
+
+    for i in new_map_set:
+        final_map_set.add('/' + i)
+
     current_map_set = set()
-    for path in new_map_set:
+    for path in final_map_set:
         if os.path.exists(path):
             current_map_set.add(path)
         else:
@@ -121,19 +211,12 @@ def get_current_set():
     return current_map_set
 
 
-def lock_files(_map_set):
+def get_sorted(rp_set):
     """
     """
-    if debug:
-        print('mapping ang locking files...')
-
-    lock_counter = 0
-    mm_read_size_counter = 0
-
     di = dict()
-
-    for rp in _map_set:
-        rp = str(rp)
+    for rp in rp_set:
+        rp = str(rp)  # ?
         if search(r, rp) is not None:
             try:
                 s = os.path.getsize(rp)
@@ -145,105 +228,192 @@ def lock_files(_map_set):
         else:
             if debug:
                 print("skip (doesn't match $LOCK_RE): " + rp)
-    list_d = list(di.items())
-    list_d.sort(key=lambda i: i[1])
+    sorted_list = list(di.items())
+    sorted_list.sort(key=lambda i: i[1])
+    return sorted_list
 
-    for f_realpath, _ in list_d:
 
-        try:
-            size = os.path.getsize(f_realpath)
-        except FileNotFoundError as e:
-            errprint(e)
+def get_sorted_locked():
+    """
+    """
+    di = dict()
+    for rp in lock_dict:
+        size = lock_dict[rp][2]
+        di[rp] = size
+    sorted_list = list(di.items())
+    sorted_list.sort(key=lambda i: i[1], reverse=True)
+    return sorted_list
+
+
+def lock_files(rp_set):
+    """
+    """
+    if debug:
+        print('mapping (ang locking) files...')
+
+    lock_counter = 0
+
+    sorted_list = get_sorted(rp_set)
+
+    sorted_locked = get_sorted_locked()
+
+    len_sorted_locked = len(sorted_locked)
+
+    last_index = 0
+
+    for f_realpath, size in sorted_list:
+
+        # skip large files
+        if size > max_file_size:
+            if debug:
+                print(
+                    'skip (file size {}M > $MAX_FILE_SIZE_MIB) {}'.format(
+                        round(
+                            size / MIB,
+                            1),
+                        f_realpath))
+                continue
+            else:
+                break
+
+        if f_realpath in lock_dict:
             continue
 
-        if size > MAX_SIZE:
-            if debug:
-                print('skip (file size {}M > $MAX_FILE_SIZE) {}'.format(round(
-                    size / MIB, 1), f_realpath))
-                continue
+        cap = max_total_size
+        locked = get_total_size()
+        avail = cap - locked
+
+        total_size = get_total_size()
+
+        avail = max_total_size - total_size
+
+        if avail < size:
+
+            if len_sorted_locked == 0:
+
+                if debug:
+                    print('skip (total_size ({}M) + size ({}M) > max_total_s'
+                          'ize) {}'.format(
+                              round(total_size / MIB, 1), round(
+                                  size / MIB, 1), f_realpath))
+                    continue
+                else:
+                    break
+
             else:
-                break
+                old_f, old_s = sorted_locked[last_index]
+
+                if size < old_s:
+
+                    avail_future = avail + old_s - size
+
+                    if avail_future < size:
+                        if debug:
+                            print('skip (total_size ({}M) + size ({}M) > max'
+                                  '_total_size) {}'.format(
+                                      round(total_size / MIB, 1), round(
+                                          size / MIB, 1), f_realpath))
+                            continue
+                        else:
+                            break
+
+                    lock_dict[old_f][1].close()
+                    lock_dict[old_f][0].close()
+                    del lock_dict[old_f]
+
+                    last_index += 1
+
+                    try:
+                        print(
+                            'locking ({}M) {}'.format(
+                                round(
+                                    size / MIB,
+                                    1),
+                                f_realpath))
+
+                        f = open(f_realpath, 'rb')
+
+                        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+                        mm_len = len(mm)
+
+                        if mm_len != size:
+                            print('W: mm_len != size:', f_realpath)
+
+                        lock_dict[f_realpath] = (f, mm, mm_len)
+
+                        lock_counter += 1
+                        continue
+
+                    except OSError as e:
+                        errprint(e)
+                        break
+
+                if debug:
+                    print('skip (total_size ({}M) + size ({}M) > max_total_s'
+                          'ize) {}'.format(
+                              round(total_size / MIB, 1), round(
+                                  size / MIB, 1), f_realpath))
+                    continue
+                else:
+                    break
 
         try:
-            rss = get_self_rss()
-        except OSError as e:
-            errprint(e)
-            break
 
-        if rss + size > max_self_rss:
-            if debug:
-                print('skip (rss ({}M) + size ({}M) > max_self_rss) {}'.format(
-                    round(rss / MIB, 1), round(size / MIB, 1), f_realpath))
-                continue
-            else:
-                break
-
-        try:
             if debug:
                 print('locking ({}M) {}'.format(
                     round(size / MIB, 1), f_realpath))
+
             f = open(f_realpath, 'rb')
+
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-            lock_dict[f_realpath] = (f, mm)
+
+            mm_len = len(mm)
+
+            if mm_len != size:
+                print('W: mm_len != size:', f_realpath)
+
+            lock_dict[f_realpath] = (f, mm, mm_len)
+
             lock_counter += 1
-            mm_read_size_counter += size
+
         except OSError as e:
             errprint(e)
             break
 
-    print('locked {}M files'.format(round(mm_read_size_counter / MIB, 1)))
+    mm_debug()
 
 
-def write_snapshot():
+def unlock_files(elements):
     """
     """
-    map_set = get_current_set()
-    map_list = sorted(list(map_set))
-    print('Saving mapped files...')
-    try:
-        with open(saved_path, 'w') as f:
-            for line in map_list:
-                f.write(line + '\n')
-    except FileNotFoundError:
-        os.mkdir(saved_dir)
-        os.chmod(saved_dir, mode=0o700)
-        with open(saved_path, 'w') as f:
-            for line in map_list:
-                f.write(line + '\n')
-    print('OK, mmapped files list has been saved in ' + saved_path)
+    # print('unlocking files...')
 
+    if len(elements) > 0:
 
-def get_saved_set():
-    """
-    """
-    if debug:
-        print('Looking for saved files...')
+        del_set = set()
 
-    saved_set = set()
+        for f_realpath in elements:
 
-    try:
-        with open(saved_path) as f:
-            for line in f:
-                saved_set.add(line[:-1])
-    except FileNotFoundError as e:
-        errprint(e)
+            try:
+                lock_dict[f_realpath][1].close()
+                lock_dict[f_realpath][0].close()
 
-    new_saved_set = set()
+                del_set.add(f_realpath)
 
-    for path in saved_set:
-        if os.path.exists(path):
-            new_saved_set.add(path)
-        else:
-            if debug:
-                print('skip:', path)
-    if debug:
-        list_d = list(new_saved_set)
-        list_d.sort()
-        for path in list_d:
-            print('saved:', path)
-        print('Found {} saved paths'.format(len(new_saved_set)))
+                if debug:
+                    print('unlocked:', f_realpath)
+            except KeyError:
+                if debug:
+                    print('key error:', f_realpath)
 
-    return new_saved_set
+        if len(del_set) > 0:
+
+            for i in del_set:
+                try:
+                    lock_dict.pop(i)
+                except KeyError:
+                    print('key error:', f_realpath)
 
 
 def get_self_rss():
@@ -253,14 +423,51 @@ def get_self_rss():
         return int(f.readline().split(' ')[1]) * SC_PAGESIZE
 
 
+def get_total_size():
+    """
+    """
+    ts = 0
+    for rp in lock_dict:
+        f, m, s = lock_dict[rp]
+        ts += s
+    return ts
+
+
+def mm_debug():
+    """
+    """
+    locked = get_total_size()
+    num = len(lock_dict)
+
+    print('Currently locked {}M, {} files'.format(
+        round(locked / MIB, 1),
+        num,
+    ))
+
+
+def string_to_int_convert_test(string):
+    """Try to interpret string values as integers."""
+    try:
+        return int(string)
+    except ValueError:
+        return None
+
+
 ###############################################################################
 
-MIB = 1024 * 1024
 
-min_mem_available = 20 * 1024
+MIB = 1024**2
 
-saved_dir = '/var/lib/prelockd'
-saved_path = '/var/lib/prelockd/saved_snapshot'
+self_pid = str(os.getpid())
+
+SC_CLK_TCK = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+
+uniq_map_d = dict()
+
+min_save_lifetime = 300
+
+dump_path = '/var/lib/prelockd/dump.json'
+
 debug = True
 
 
@@ -272,9 +479,6 @@ if la == 0:
 elif la == 1:
     if a[0] == '-p':
         get_current_set()
-        exit()
-    elif a[0] == '-w':
-        write_snapshot()
         exit()
     else:
         errprint('invalid input')
@@ -340,31 +544,17 @@ else:
     exit(1)
 
 
-if '$LOCK_CURRENT_MAPPED' in config_dict:
-    lock_current_mapped = config_dict['$LOCK_CURRENT_MAPPED']
-    if lock_current_mapped == 'True':
-        lock_current_mapped = True
-    elif lock_current_mapped == 'False':
-        lock_current_mapped = False
+if '$LOCK_LATEST_SNAPSHOT' in config_dict:
+    lock_latest = config_dict['$LOCK_LATEST_SNAPSHOT']
+    if lock_latest == 'True':
+        lock_latest = True
+    elif lock_latest == 'False':
+        lock_latest = False
     else:
-        errprint('invalid $LOCK_CURRENT_MAPPED value')
+        errprint('invalid $LOCK_LATEST_SNAPSHOT value')
         exit(1)
 else:
-    errprint('missing $LOCK_CURRENT_MAPPED key')
-    exit(1)
-
-
-if '$LOCK_SAVED_MAPPED' in config_dict:
-    lock_saved_mapped = config_dict['$LOCK_SAVED_MAPPED']
-    if lock_saved_mapped == 'True':
-        lock_saved_mapped = True
-    elif lock_saved_mapped == 'False':
-        lock_saved_mapped = False
-    else:
-        errprint('invalid $LOCK_SAVED_MAPPED value')
-        exit(1)
-else:
-    errprint('missing $LOCK_SAVED_MAPPED key')
+    errprint('missing $LOCK_LATEST_SNAPSHOT key')
     exit(1)
 
 
@@ -388,64 +578,98 @@ else:
     exit(1)
 
 
-if '$MAX_SELF_RSS_PERCENT' in config_dict:
-    string = config_dict['$MAX_SELF_RSS_PERCENT']
-    max_self_rss_percent = string_to_float_convert_test(string)
-    if max_self_rss_percent is None:
-        errprint('invalid $MAX_SELF_RSS_PERCENT value')
+if '$MAX_TOTAL_SIZE_PERCENT' in config_dict:
+    string = config_dict['$MAX_TOTAL_SIZE_PERCENT']
+    max_total_size_percent = string_to_float_convert_test(string)
+    if max_total_size_percent is None:
+        errprint('invalid $MAX_TOTAL_SIZE_PERCENT value')
         exit(1)
-    max_self_rss_pc = int(mem_total * max_self_rss_percent / 100) * 1024
+    max_total_size_pc = int(mem_total * max_total_size_percent / 100) * 1024
 else:
-    errprint('missing $MAX_FILE_SIZE_MIB key')
+    errprint('missing $MAX_TOTAL_SIZE_PERCENT key')
     exit(1)
 
 
-if '$MAX_SELF_RSS_MIB' in config_dict:
-    string = config_dict['$MAX_SELF_RSS_MIB']
-    max_self_rss_mib = string_to_float_convert_test(string)
-    if max_self_rss_mib is None:
-        errprint('invalid $MAX_SELF_RSS_MIB value')
+if '$MAX_TOTAL_SIZE_MIB' in config_dict:
+    string = config_dict['$MAX_TOTAL_SIZE_MIB']
+    max_total_size_mib = string_to_float_convert_test(string)
+    if max_total_size_mib is None:
+        errprint('invalid $MAX_TOTAL_SIZE_MIB value')
         exit(1)
-    max_self_rss_mib = int(max_self_rss_mib * 1048576)
+    max_total_size_mib = int(max_total_size_mib * 1048576)
 else:
-    errprint('missing $MAX_SELF_RSS_MIB key')
+    errprint('missing $MAX_TOTAL_SIZE_MIB key')
     exit(1)
 
 
-if max_self_rss_mib <= max_self_rss_pc:
-    max_self_rss = max_self_rss_mib
+if max_total_size_mib <= max_total_size_pc:
+    max_total_size = max_total_size_mib
 else:
-    max_self_rss = max_self_rss_pc
+    max_total_size = max_total_size_pc
+
+
+if '$POLL_INTERVAL_SEC' in config_dict:
+    string = config_dict['$POLL_INTERVAL_SEC']
+    interval = string_to_float_convert_test(string)
+    if interval is None:
+        errprint('invalid $POLL_INTERVAL_SEC value')
+        exit(1)
+else:
+    errprint('missing $POLL_INTERVAL_SEC key')
+    exit(1)
+
+
+if '$MIN_FREQ_PERCENT' in config_dict:
+    string = config_dict['$MIN_FREQ_PERCENT']
+    min_freq = string_to_float_convert_test(string)
+    if min_freq is None:
+        errprint('invalid $MIN_FREQ_PERCENT value')
+        exit(1)
+    min_freq = min_freq / 100
+else:
+    errprint('missing $MIN_FREQ_PERCENT key')
+    exit(1)
+
+
+if '$STORE_SNAPSHOTS_NUM' in config_dict:
+    string = config_dict['$STORE_SNAPSHOTS_NUM']
+    store_num = string_to_int_convert_test(string)
+    if store_num is None:
+        errprint('invalid $STORE_SNAPSHOTS_NUM value')
+        exit(1)
+
+    if store_num < 1:
+        print('invalid store_num')
+        exit(1)
+
+
+else:
+    errprint('missing $STORE_SNAPSHOTS_NUM key')
+    exit(1)
+
 
 config = os.path.abspath(config)
 
 print('Starting prelockd with the config: {}'.format(config))
 
 if debug:
-    print('$MAX_SELF_RSS_PERCENT:', round(max_self_rss_pc / MIB, 1), '(MiB)')
-    print('$MAX_SELF_RSS_MIB:    ', round(max_self_rss_mib / MIB, 1))
-    print('max_self_rss:         ', round(max_self_rss / MIB, 1), '(MiB)')
-    print('$DEBUG:               ', debug)
-    print('$LOCK_CURRENT_MAPPED: ', lock_current_mapped)
-    print('$LOCK_SAVED_MAPPED:   ', lock_saved_mapped)
     print('$MAX_FILE_SIZE_MIB:   ', max_file_size / MIB)
+    print('$MAX_TOTAL_SIZE_PERCENT:', round(
+        max_total_size_pc / MIB, 1), '(MiB)')
+    print('$MAX_TOTAL_SIZE_MIB:    ', round(max_total_size_mib / MIB, 1))
+    print('max_total_size:         ', round(max_total_size / MIB, 1), '(MiB)')
+    print('$DEBUG:               ', debug)
     print('$LOCK_RE:             ', lock_re)
 
 mlockall()
 
 r = lock_re
 
-# max file size that can be locked
-MAX_SIZE = max_file_size
-
-
-###############################################################################
+dump_d = dict()
 
 
 p0 = process_time()
 m0 = monotonic()
-
-stdout.flush()
 
 sig_list = [SIGTERM, SIGINT, SIGQUIT, SIGHUP]
 
@@ -455,37 +679,114 @@ for i in sig_list:
     signal(i, signal_handler)
 
 
-final_set = set()
+var_dict = dict()
 
-if lock_current_mapped:
-    current_set = get_current_set()
-    final_set.update(current_set)
+d = dict()
 
-if lock_saved_mapped:
-    saved_set = get_saved_set()
-    final_set.update(saved_set)
 
-fs = len(final_set)
+def jdump(path, data):
+    """
+    """
+    with open(path, 'w') as f:
+        dump(data, f, sort_keys=True, indent=0)
 
-if fs == 0:
-    print('Nothing to do!')
-    exit()
 
-lock_files(final_set)
+def jload(path):
+    """
+    """
+    with open(path) as f:
+        return load(f)
+
+
+YES = 1
+NO = 0
+
+
+var_dict['lock_t0'] = monotonic()
+
 
 try:
-    num_fd = len(os.listdir('/proc/self/fd'))
-    print('fd opened:', num_fd)
-except OSError as e:
-    errprint(e)
+    dump_d = jload(dump_path)
+    d = dump_d['d']
+    lock_t = dump_d['t']
+    final_set = set()
 
-m = monotonic() - m0
-p = process_time() - p0
+    for rp in d:
+        n = d[rp].count(YES)
+        freq = n / store_num
+        if freq >= min_freq:
+            final_set.add(rp)
 
-print('self RSS: {}M, startup time: {}s, process time: {}s'.format(
-    round(get_self_rss() / MIB, 1), round(m, 1), round(p, 1)))
+    if lock_latest:
+        current_set = get_current_set()
+        final_set.update(current_set)
+
+    lock_files(final_set)
+
+    lock_t0 = monotonic() - lock_t
+    var_dict['lock_t0'] = lock_t0
+
+    extra_t = interval - lock_t
+
+    if extra_t > 0:
+        sleep(extra_t)
+
+except Exception as e:
+    print(e)
+    d = dict()
+    lock_t = 0
 
 stdout.flush()
 
 while True:
-    sleep(9999)
+
+    current_set = get_current_set()
+
+    len_cur = len(current_set)
+
+    d_set = set(d)
+    minus = d_set - current_set
+
+    for rp in current_set:
+        if rp in d:
+            v_list = d[rp][-store_num:]
+            v_list.append(YES)
+            if len(
+                    v_list) > store_num:
+                del v_list[0]
+            d[rp] = v_list
+        else:
+            d[rp] = [YES]
+
+    for rp in minus:
+        v_list = d[rp][-store_num:]
+        v_list.append(NO)
+        if len(v_list) > store_num:
+            del v_list[0]
+        if YES in v_list:
+            d[rp] = v_list
+        else:
+            del d[rp]
+
+    final_set = set()
+
+    for rp in d:
+        n = d[rp].count(YES)
+        freq = n / store_num
+        if freq >= min_freq:
+            final_set.add(rp)
+
+    if lock_latest:
+        final_set.update(current_set)
+
+    old_final_set = set(lock_dict)
+    unlock_it = old_final_set - final_set
+    unlock_files(unlock_it)
+    lock_it = final_set - old_final_set
+    lock_files(lock_it)
+
+    var_dict['lock_t0'] = monotonic()
+
+    stdout.flush()
+
+    sleep(interval)

@@ -55,21 +55,9 @@ $ sudo systemctl enable --now prelockd.service
 $ sudo make uninstall
 ```
 
-## Output example
-
-```
-04:47:42 PC prelockd[5370]: starting prelockd
-04:47:44 PC prelockd[5370]: process memory locked with MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT
-04:47:44 PC prelockd[5370]: found 962 mapped files
-04:47:45 PC prelockd[5370]: mlocked 738 files, 230.1 MiB
-04:47:45 PC prelockd[5370]: fd opened: 1481
-04:47:45 PC prelockd[5370]: startup time: 3.63s
-04:47:45 PC prelockd[5370]: process time: 2.068s
-```
-
 ## How to use
 
-Just restart the service after starting GUI session, and executables/libraries will be locked.
+Install and start the daemon.
 
 ## Effects
 - OOM killer comes faster (especially with noswap).
@@ -85,7 +73,7 @@ On this video: running fast memory hogs in a loop on Debian 10 GNOME, 4 GiB MemT
 
 ## Config
 
-`$SYSCONFDIR/prelockd/prelockd.conf`
+`/etc/prelockd.conf` or `/usr/local/etc/prelockd.conf`
 
 https://github.com/hakavlad/prelockd/blob/master/prelockd.conf
 
@@ -95,21 +83,13 @@ https://github.com/hakavlad/prelockd/blob/master/prelockd.conf
 
 Edit the config and restart the daemon.
 
-## Save snapshot
-
-Run `sudo prelockd -w` to save list of current mmapped files in `/var/lib/prelockd/saved_snapshot`. This list may be mlocked at the next `prelockd` startup.
-
-## Defaults
-
-- Maximum file size that can be locked is 10 MiB. Self RSS limit: 5% MemTotal or 512 MiB.
-
 ## Debug
 
 Set `$DEBUG = True` in the config.
 
 ## TODO
 
-- Add a man page.
+- Improve the documentation.
 
 ## Report bugs and ask any questions
 

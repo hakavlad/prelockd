@@ -16,13 +16,13 @@ base:
 	install -d $(DESTDIR)$(SBINDIR)
 	install -m0755 $(NAME) $(DESTDIR)$(SBINDIR)/$(NAME)
 
-	install -d $(DESTDIR)$(SYSCONFDIR)/$(NAME)
-	install -m0644 $(NAME).conf $(DESTDIR)$(SYSCONFDIR)/$(NAME)/$(NAME).conf
+	install -d $(DESTDIR)$(SYSCONFDIR)
+	install -m0644 $(NAME).conf $(DESTDIR)$(SYSCONFDIR)/$(NAME).conf
 
 	install -d $(DESTDIR)$(DOCDIR)
 	install -m0644 README.md $(DESTDIR)$(DOCDIR)/README.md
 
-	install -dm0700 $(DESTDIR)/var/lib/prelockd
+	install -dm0700 $(DESTDIR)/var/lib/$(NAME)
 
 units:
 	install -d $(DESTDIR)$(SYSTEMDUNITDIR)
@@ -35,7 +35,7 @@ units:
 	rm -fv $(NAME).service
 
 useradd:
-	-useradd -r -M -s /bin/false prelockd
+	-useradd -r -M -s /bin/false $(NAME)
 
 chcon:
 	-chcon -t systemd_unit_file_t $(DESTDIR)$(SYSTEMDUNITDIR)/$(NAME).service
@@ -49,7 +49,7 @@ install: base units useradd chcon daemon-reload
 uninstall-base:
 	rm -fv $(DESTDIR)$(SBINDIR)/$(NAME)
 	rm -fvr $(DESTDIR)$(DOCDIR)/
-	rm -fvr $(DESTDIR)$(SYSCONFDIR)/$(NAME)/
+	rm -fvr $(DESTDIR)$(SYSCONFDIR)/$(NAME).conf
 	rm -fvr $(DESTDIR)/var/lib/$(NAME)/
 
 uninstall-units:
