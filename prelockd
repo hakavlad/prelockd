@@ -75,6 +75,8 @@ def signal_handler(signum, frame):
     dump_d['d'] = d
     jdump(dump_path, dump_d)
 
+    mm_debug()
+
     print('Exit.')
     exit()
 
@@ -217,7 +219,7 @@ def get_sorted(rp_set):
     di = dict()
     for rp in rp_set:
         rp = str(rp)  # ?
-        if search(r, rp) is not None:
+        if search(lock_path_regex, rp) is not None:
             try:
                 s = os.path.getsize(rp)
                 if s > 0:
@@ -227,7 +229,7 @@ def get_sorted(rp_set):
                     print(e)
         else:
             if debug:
-                print("skip (doesn't match $LOCK_RE): " + rp)
+                print("skip (doesn't match $LOCK_PATH_REGEX): " + rp)
     sorted_list = list(di.items())
     sorted_list.sort(key=lambda i: i[1])
     return sorted_list
@@ -268,10 +270,7 @@ def lock_files(rp_set):
             if debug:
                 print(
                     'skip (file size {}M > $MAX_FILE_SIZE_MIB) {}'.format(
-                        round(
-                            size / MIB,
-                            1),
-                        f_realpath))
+                        round(size / MIB, 1), f_realpath))
                 continue
             else:
                 break
@@ -387,8 +386,6 @@ def lock_files(rp_set):
 def unlock_files(elements):
     """
     """
-    # print('unlocking files...')
-
     if len(elements) > 0:
 
         del_set = set()
@@ -453,6 +450,49 @@ def string_to_int_convert_test(string):
         return None
 
 
+def get_final_set():
+    """
+    d, lock_path_set -> final_set
+    """
+    final_set = set()
+
+    for rp in d:
+        for min_entry, from_latest in lock_path_set:
+            v_list = d[rp][-from_latest:]
+            entry = v_list.count(YES)
+            if entry >= min_entry:
+                final_set.add(rp)
+                continue
+
+    return final_set
+
+
+def rotate_snapshots():
+    """
+    current_set, minus, max_store_num, d
+    -> d
+    """
+    for rp in current_set:
+        if rp in d:
+            v_list = d[rp][-max_store_num:]
+            v_list.append(YES)
+            if len(v_list) > max_store_num:
+                del v_list[0]
+            d[rp] = v_list
+        else:
+            d[rp] = [YES]
+
+    for rp in minus:
+        v_list = d[rp][-max_store_num:]
+        v_list.append(NO)
+        if len(v_list) > max_store_num:
+            del v_list[0]
+        if YES in v_list:
+            d[rp] = v_list
+        else:
+            del d[rp]
+
+
 ###############################################################################
 
 
@@ -513,9 +553,18 @@ SC_PAGESIZE = os.sysconf(os.sysconf_names['SC_PAGESIZE'])
 
 config_dict = dict()
 
+
+lock_path_set = set()
+
+max_store_num = 0
+
+
 try:
+
     with open(config) as f:
+
         for line in f:
+
             if line[0] == '$' and '=' in line:
                 key, _, value = line.partition('=')
                 key = key.rstrip()
@@ -524,6 +573,45 @@ try:
                     errprint('config key {} duplication'.format(key))
                     exit(1)
                 config_dict[key] = value
+
+            if line[0] == '@' and '=' in line:
+                if line.startswith('@LOCK_PATH '):
+                    a_list = line.partition('@LOCK_PATH ')[2:][0].split()
+                    lal = len(a_list)
+                    if lal != 2:
+                        print(lal)
+                        errprint('invalid conf')
+                        exit(1)
+
+                    a_dict = dict()
+
+                    for pair in a_list:
+                        key, _, value = pair.partition('=')
+                        a_dict[key] = value
+
+                    min_entry = string_to_int_convert_test(a_dict['MIN_ENTRY'])
+                    if min_entry is None:
+                        errprint('Invalid config: invalid MIN_ENTRY: not int')
+
+                    from_latest = string_to_int_convert_test(
+                        a_dict['FROM_LATEST'])
+                    if from_latest is None:
+                        errprint(
+                            'Invalid config: invalid FROM_LATEST: not int')
+
+                    if min_entry > from_latest:
+                        errprint('invalid conf')
+                        exit(1)
+
+                    if min_entry < 1 or from_latest < 1:
+                        errprint('invalid conf')
+                        exit(1)
+
+                    if from_latest > max_store_num:
+                        max_store_num = from_latest
+
+                    lock_path_set.add((min_entry, from_latest))
+
 except (PermissionError, UnicodeDecodeError, IsADirectoryError,
         IndexError, FileNotFoundError) as e:
     errprint('Invalid config: {}. Exit.'.format(e))
@@ -544,20 +632,6 @@ else:
     exit(1)
 
 
-if '$LOCK_LATEST_SNAPSHOT' in config_dict:
-    lock_latest = config_dict['$LOCK_LATEST_SNAPSHOT']
-    if lock_latest == 'True':
-        lock_latest = True
-    elif lock_latest == 'False':
-        lock_latest = False
-    else:
-        errprint('invalid $LOCK_LATEST_SNAPSHOT value')
-        exit(1)
-else:
-    errprint('missing $LOCK_LATEST_SNAPSHOT key')
-    exit(1)
-
-
 if '$MAX_FILE_SIZE_MIB' in config_dict:
     string = config_dict['$MAX_FILE_SIZE_MIB']
     max_file_size_mib = string_to_float_convert_test(string)
@@ -570,11 +644,11 @@ else:
     exit(1)
 
 
-if '$LOCK_RE' in config_dict:
-    lock_re = config_dict['$LOCK_RE']
-    valid_re(lock_re)
+if '$LOCK_PATH_REGEX' in config_dict:
+    lock_path_regex = config_dict['$LOCK_PATH_REGEX']
+    valid_re(lock_path_regex)
 else:
-    errprint('missing $LOCK_RE key')
+    errprint('missing $LOCK_PATH_REGEX key')
     exit(1)
 
 
@@ -619,54 +693,28 @@ else:
     exit(1)
 
 
-if '$MIN_FREQ_PERCENT' in config_dict:
-    string = config_dict['$MIN_FREQ_PERCENT']
-    min_freq = string_to_float_convert_test(string)
-    if min_freq is None:
-        errprint('invalid $MIN_FREQ_PERCENT value')
-        exit(1)
-    min_freq = min_freq / 100
-else:
-    errprint('missing $MIN_FREQ_PERCENT key')
-    exit(1)
-
-
-if '$STORE_SNAPSHOTS_NUM' in config_dict:
-    string = config_dict['$STORE_SNAPSHOTS_NUM']
-    store_num = string_to_int_convert_test(string)
-    if store_num is None:
-        errprint('invalid $STORE_SNAPSHOTS_NUM value')
-        exit(1)
-
-    if store_num < 1:
-        print('invalid store_num')
-        exit(1)
-
-
-else:
-    errprint('missing $STORE_SNAPSHOTS_NUM key')
-    exit(1)
-
-
 config = os.path.abspath(config)
 
 print('Starting prelockd with the config: {}'.format(config))
 
 if debug:
-    print('$MAX_FILE_SIZE_MIB:   ', max_file_size / MIB)
-    print('$MAX_TOTAL_SIZE_PERCENT:', round(
+    print('$LOCK_PATH_REGEX:        ', lock_path_regex)
+    print('$MAX_FILE_SIZE_MIB:      ', max_file_size / MIB)
+    print('$MAX_TOTAL_SIZE_MIB:     ', round(max_total_size_mib / MIB, 1))
+    print('$MAX_TOTAL_SIZE_PERCENT: ', round(
         max_total_size_pc / MIB, 1), '(MiB)')
-    print('$MAX_TOTAL_SIZE_MIB:    ', round(max_total_size_mib / MIB, 1))
-    print('max_total_size:         ', round(max_total_size / MIB, 1), '(MiB)')
-    print('$DEBUG:               ', debug)
-    print('$LOCK_RE:             ', lock_re)
+    print('max_total_size:          ', round(max_total_size / MIB, 1), '(MiB)')
+    print('$DEBUG:                  ', debug)
+    print('$LOCK_PATH_REGEX:        ', lock_path_regex)
+    print('@LOCK_PATH               ', lock_path_set)
+
+if max_store_num == 0:
+    print('WARNING: lock rules are empty!')
+
 
 mlockall()
 
-r = lock_re
-
 dump_d = dict()
-
 
 p0 = process_time()
 m0 = monotonic()
@@ -674,6 +722,8 @@ m0 = monotonic()
 sig_list = [SIGTERM, SIGINT, SIGQUIT, SIGHUP]
 
 lock_dict = dict()
+
+mm_debug()
 
 for i in sig_list:
     signal(i, signal_handler)
@@ -701,25 +751,14 @@ def jload(path):
 YES = 1
 NO = 0
 
-
 var_dict['lock_t0'] = monotonic()
-
 
 try:
     dump_d = jload(dump_path)
     d = dump_d['d']
     lock_t = dump_d['t']
-    final_set = set()
 
-    for rp in d:
-        n = d[rp].count(YES)
-        freq = n / store_num
-        if freq >= min_freq:
-            final_set.add(rp)
-
-    if lock_latest:
-        current_set = get_current_set()
-        final_set.update(current_set)
+    final_set = get_final_set()
 
     lock_files(final_set)
 
@@ -739,54 +778,17 @@ except Exception as e:
 stdout.flush()
 
 while True:
-
     current_set = get_current_set()
-
     len_cur = len(current_set)
-
     d_set = set(d)
     minus = d_set - current_set
-
-    for rp in current_set:
-        if rp in d:
-            v_list = d[rp][-store_num:]
-            v_list.append(YES)
-            if len(
-                    v_list) > store_num:
-                del v_list[0]
-            d[rp] = v_list
-        else:
-            d[rp] = [YES]
-
-    for rp in minus:
-        v_list = d[rp][-store_num:]
-        v_list.append(NO)
-        if len(v_list) > store_num:
-            del v_list[0]
-        if YES in v_list:
-            d[rp] = v_list
-        else:
-            del d[rp]
-
-    final_set = set()
-
-    for rp in d:
-        n = d[rp].count(YES)
-        freq = n / store_num
-        if freq >= min_freq:
-            final_set.add(rp)
-
-    if lock_latest:
-        final_set.update(current_set)
-
+    rotate_snapshots()
+    final_set = get_final_set()
     old_final_set = set(lock_dict)
     unlock_it = old_final_set - final_set
     unlock_files(unlock_it)
     lock_it = final_set - old_final_set
     lock_files(lock_it)
-
     var_dict['lock_t0'] = monotonic()
-
     stdout.flush()
-
     sleep(interval)

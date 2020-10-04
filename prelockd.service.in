@@ -7,6 +7,7 @@ ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd.conf
 User=prelockd
 Slice=unevictable.slice
 TasksMax=1
+UMask=0166
 OOMScoreAdjust=-100
 LimitMEMLOCK=infinity
 LimitNOFILE=infinity
