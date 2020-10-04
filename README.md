@@ -2,7 +2,7 @@
 
 [![Total alerts](https://img.shields.io/lgtm/alerts/g/hakavlad/prelockd.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/hakavlad/prelockd/alerts/)
 
-prelockd is a daemon that locks mmapped binaries and libraries in memory and prevents code eviction from memory.
+prelockd is a daemon that locks memory mapped binaries and libraries in memory to improve system responsiveness under low-memory conditions.
 
 ## What is the problem?
 
@@ -41,6 +41,22 @@ prelockd is a daemon that locks mmapped binaries and libraries in memory and pre
 
 — [lists.fedoraproject.org](https://lists.fedoraproject.org/archives/list/devel@lists.fedoraproject.org/message/5V2BBYBQ6AWAL7LXYLYV6XBZYGPDS5RV/)
 
+
+## Effects
+- OOM killer comes faster (especially with noswap).
+- Fast system reclaiming after OOM.
+- Improved system responsiveness under low-memory conditions.
+
+## Demo
+
+https://www.youtube.com/watch?v=vykUrP1UvcI
+
+On this video: running fast memory hogs in a loop on Debian 10 GNOME, 4 GiB MemTotal without swap space.
+- prelockd enabled: about 500 MiB mlocked. Starting `while true; do tail /dev/zero; done`: no freezes. The OOM killer comes quickly, the system recovers quickly.
+- prelockd disabled: system hangs with `while true; do tail /dev/zero; done`.
+
+See also https://youtu.be/fPnbnNX9CPE, https://youtu.be/O8QNnfb_Vm0.
+
 ## Install
 
 ```
@@ -59,18 +75,6 @@ $ sudo make uninstall
 
 Install and start the daemon.
 
-## Effects
-- OOM killer comes faster (especially with noswap).
-- Fast system reclaiming after OOM.
-
-## Demo
-
-https://www.youtube.com/watch?v=vykUrP1UvcI
-
-On this video: running fast memory hogs in a loop on Debian 10 GNOME, 4 GiB MemTotal without swap space.
-- prelockd enabled: about 500 MiB mlocked. Starting `while true; do tail /dev/zero; done`: no freezes. The OOM killer comes quickly, the system recovers quickly.
-- prelockd disabled: system hangs with `while true; do tail /dev/zero; done`.
-
 ## Config
 
 `/etc/prelockd.conf` or `/usr/local/etc/prelockd.conf`
@@ -82,10 +86,6 @@ https://github.com/hakavlad/prelockd/blob/master/prelockd.conf
 ## How to configure
 
 Edit the config and restart the daemon.
-
-## Debug
-
-Set `$DEBUG = True` in the config.
 
 ## TODO
 
