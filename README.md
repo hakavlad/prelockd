@@ -59,14 +59,19 @@ See also https://youtu.be/fPnbnNX9CPE, https://youtu.be/O8QNnfb_Vm0.
 
 ## Install
 
+#### On rpm-based:
+
+See https://copr.fedorainfracloud.org/coprs/elxreno/prelockd/
+
+#### On other distros:
+
 ```
 $ git clone https://github.com/hakavlad/prelockd.git && cd prelockd
 $ sudo make install
 $ sudo systemctl enable --now prelockd.service
 ```
 
-## Uninstall
-
+#### Uninstall
 ```
 $ sudo make uninstall
 ```
