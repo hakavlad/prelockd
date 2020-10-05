@@ -9,10 +9,8 @@ Slice=unevictable.slice
 TasksMax=1
 UMask=0166
 OOMScoreAdjust=-100
-LimitMEMLOCK=infinity
-LimitNOFILE=infinity
-AmbientCapabilities=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_READ_SEARCH \
-CAP_DAC_OVERRIDE CAP_SYS_RESOURCE
+LimitNOFILE=8192
+AmbientCapabilities=CAP_IPC_LOCK CAP_SYS_PTRACE CAP_DAC_OVERRIDE
 ReadWritePaths=/var/lib/prelockd
 ProtectSystem=strict
 PrivateDevices=true
