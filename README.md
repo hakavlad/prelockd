@@ -59,9 +59,12 @@ See also https://youtu.be/fPnbnNX9CPE, https://youtu.be/O8QNnfb_Vm0.
 
 ## Install
 
-#### On rpm-based:
+#### On [Fedora](https://src.fedoraproject.org/rpms/prelockd):
 
-See https://copr.fedorainfracloud.org/coprs/elxreno/prelockd/
+```
+$ sudo dnf install prelockd
+$ sudo systemctl enable --now prelockd.service
+```
 
 #### On other distros:
 
