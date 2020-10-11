@@ -2,15 +2,15 @@
 """prelockd"""
 
 
-from os import listdir, path, getpid, sysconf, sysconf_names
-from re import search
-from sre_constants import error as invalid_re
-from mmap import mmap, ACCESS_READ
-from time import sleep, monotonic, process_time
-from signal import signal, SIGTERM, SIGINT, SIGQUIT, SIGHUP
-from sys import stdout, stderr, exit, argv
-from json import dump, load
 from ctypes import CDLL
+from json import dump, load
+from mmap import ACCESS_READ, mmap
+from os import getpid, listdir, path, sysconf, sysconf_names, times
+from re import search
+from signal import SIGHUP, SIGINT, SIGQUIT, SIGTERM, signal
+from sre_constants import error as invalid_re
+from sys import argv, exit, stderr, stdout
+from time import monotonic, process_time, sleep
 
 
 def valid_re(reg_exp):
@@ -56,7 +56,7 @@ def mlockall():
         errprint('Exit.')
         exit(1)
     else:
-        if debug:
+        if debug_self:
             print('process memory locked with MCL_FUTURE')
 
 
@@ -75,7 +75,13 @@ def signal_handler(signum, frame):
     dump_d['d'] = d
     jdump(dump_path, dump_d)
 
-    mm_debug()
+    if debug_1:
+        mm_debug()
+
+    if debug_self:
+        self_rss = get_self_rss()
+        print('self rss: {}M'.format(round(self_rss / MIB, 1)))
+        cpu()
 
     print('Exit.')
     exit()
@@ -106,8 +112,35 @@ def get_uniq_id(pid):
     try:
         with open('/proc/' + pid + '/stat', 'rb', buffering=0) as f:
             x, _, y = f.read().decode('utf-8', 'ignore').rpartition(')')
+
             if y[-7:] == ' 0 0 0\n':
                 return None  # skip kthreads
+
+            if lock_only_critical:
+
+                lock_ok = False
+
+                name = x.partition(' (')[2]
+                if name in name_set:
+                    lock_ok = True
+                    if debug_map:
+                        print('found process with critical name:', pid, name)
+
+                if not lock_ok and check_cgroup:
+                    cgroup2 = pid_to_cgroup_v2(pid)
+
+                    for cgroup_re in cgroup_set:
+
+                        if search(cgroup_re, cgroup2) is not None:
+                            lock_ok = True
+                            if debug_map:
+                                print('found process from critical cgroup:',
+                                      pid, name, cgroup2)
+                            break
+
+                if not lock_ok:
+                    return None
+
             starttime = y.split(' ')[20]
             uniq_id = starttime + '+' + x
             return starttime, uniq_id
@@ -121,7 +154,7 @@ def get_current_set():
     m0 = monotonic()
     p0 = process_time()
 
-    if debug:
+    if debug_map:
         print('Looking for mapped files...')
 
     new_map_set = set()
@@ -151,7 +184,7 @@ def get_current_set():
             new_map_set.update(uniq_map_d[uniq_id])
             continue
 
-        if debug:
+        if debug_map:
             print('finding mapped files for new process:', uniq_id)
 
         maps = '/proc/' + pid + '/maps'
@@ -182,7 +215,7 @@ def get_current_set():
     for uniq_id in dead_uniq_set:
         del uniq_map_d[uniq_id]
 
-    new_map_set.remove('')
+    new_map_set.discard('')
 
     final_map_set = set()
 
@@ -194,10 +227,10 @@ def get_current_set():
         if path.exists(pathname):
             current_map_set.add(pathname)
         else:
-            if debug:
+            if debug_map:
                 print('skip:', pathname)
 
-    if debug:
+    if debug_map:
         list_d = list(current_map_set)
         list_d.sort()
         for pathname in list_d:
@@ -206,7 +239,7 @@ def get_current_set():
     m1 = monotonic()
     p1 = process_time()
 
-    if debug:
+    if debug_map:
         print('Found {} mapped files in {}s (process time: {}s)'.format(len(
             current_map_set), round(m1 - m0, 3), round(p1 - p0, 3)))
 
@@ -225,10 +258,10 @@ def get_sorted(rp_set):
                 if s > 0:
                     di[rp] = s
             except FileNotFoundError as e:
-                if debug:
+                if debug_map:
                     print(e)
         else:
-            if debug:
+            if debug_map:
                 print("skip (doesn't match $LOCK_PATH_REGEX): " + rp)
     sorted_list = list(di.items())
     sorted_list.sort(key=lambda i: i[1])
@@ -250,8 +283,8 @@ def get_sorted_locked():
 def lock_files(rp_set):
     """
     """
-    if debug:
-        print('mapping (ang locking) files...')
+    if debug_lock:
+        print('locking new files...')
 
     lock_counter = 0
 
@@ -267,7 +300,7 @@ def lock_files(rp_set):
 
         # skip large files
         if size > max_file_size:
-            if debug:
+            if debug_lock:
                 print(
                     'skip (file size {}M > $MAX_FILE_SIZE_MIB) {}'.format(
                         round(size / MIB, 1), f_realpath))
@@ -290,7 +323,7 @@ def lock_files(rp_set):
 
             if len_sorted_locked == 0:
 
-                if debug:
+                if debug_lock:
                     print('skip (total_size ({}M) + size ({}M) > max_total_s'
                           'ize) {}'.format(
                               round(total_size / MIB, 1), round(
@@ -307,7 +340,7 @@ def lock_files(rp_set):
                     avail_future = avail + old_s - size
 
                     if avail_future < size:
-                        if debug:
+                        if debug_lock:
                             print('skip (total_size ({}M) + size ({}M) > max'
                                   '_total_size) {}'.format(
                                       round(total_size / MIB, 1), round(
@@ -346,7 +379,7 @@ def lock_files(rp_set):
                         errprint(e)
                         break
 
-                if debug:
+                if debug_lock:
                     print('skip (total_size ({}M) + size ({}M) > max_total_s'
                           'ize) {}'.format(
                               round(total_size / MIB, 1), round(
@@ -357,7 +390,7 @@ def lock_files(rp_set):
 
         try:
 
-            if debug:
+            if debug_lock:
                 print('locking ({}M) {}'.format(
                     round(size / MIB, 1), f_realpath))
 
@@ -377,7 +410,8 @@ def lock_files(rp_set):
             errprint(e)
             break
 
-    mm_debug()
+    if debug_1:
+        mm_debug()
 
 
 def unlock_files(elements):
@@ -394,10 +428,10 @@ def unlock_files(elements):
 
                 del_set.add(f_realpath)
 
-                if debug:
+                if debug_lock:
                     print('unlocked:', f_realpath)
             except KeyError:
-                if debug:
+                if debug_lock:
                     print('key error:', f_realpath)
 
         if len(del_set) > 0:
@@ -432,7 +466,7 @@ def mm_debug():
     locked = get_total_size()
     num = len(lock_dict)
 
-    print('Currently locked {}M, {} files'.format(
+    print('currently locked {}M, {} files'.format(
         round(locked / MIB, 1),
         num,
     ))
@@ -503,12 +537,48 @@ def jload(pathname):
         return load(f)
 
 
+def pid_to_cgroup_v2(pid):
+    """
+    """
+    cgroup_v2 = ''
+    try:
+        with open('/proc/' + pid + '/cgroup') as f:
+            for index, line in enumerate(f):
+                if index == cgroup_v2_index:
+                    cgroup_v2 = line[3:-1]
+        return cgroup_v2
+    except FileNotFoundError:
+        return ''
+
+
+def get_cgroup2_index():
+    """
+    Find cgroup-line position in /proc/[pid]/cgroup file.
+    """
+    cgroup_v2_index = None
+
+    with open('/proc/self/cgroup') as f:
+        for index, line in enumerate(f):
+            if line.startswith('0::'):
+                cgroup_v2_index = index
+
+    return cgroup_v2_index
+
+
+def cpu():
+    """
+    """
+    m = monotonic() - start_time
+    user_time, system_time = times()[0:2]
+    p_time = user_time + system_time
+    p_percent = p_time / m * 100
+    print('process time: {}s (average: {}%)'.format(
+        round(p_time, 2), round(p_percent, 2)))
+
+
 ###############################################################################
 
-
-p0 = process_time()
-
-m0 = monotonic()
+start_time = monotonic()
 
 MIB = 1024**2
 
@@ -522,8 +592,7 @@ min_save_lifetime = 300
 
 dump_path = '/var/lib/prelockd/dump.json'
 
-debug = True
-
+cgroup_v2_index = get_cgroup2_index()
 
 a = argv[1:]
 la = len(a)
@@ -552,15 +621,10 @@ with open('/proc/meminfo') as f:
     mem_list = f.readlines()
     mem_total = int(mem_list[0].split(':')[1][:-4])
 
-
 mem_list_names = []
 
 for s in mem_list:
     mem_list_names.append(s.split(':')[0])
-try:
-    mem_available_index = mem_list_names.index('MemAvailable')
-except ValueError:
-    errprint('Your Linux kernel is too old, Linux 3.14+ required\nExit')
 
 SC_PAGESIZE = sysconf(sysconf_names['SC_PAGESIZE'])
 
@@ -569,6 +633,9 @@ config_dict = dict()
 lock_path_set = set()
 
 max_store_num = 0
+
+name_set = set()
+cgroup_set = set()
 
 try:
 
@@ -585,8 +652,9 @@ try:
                     exit(1)
                 config_dict[key] = value
 
-            if line[0] == '@' and '=' in line:
-                if line.startswith('@LOCK_PATH '):
+            if line[0] == '@':
+
+                if line.startswith('@LOCK_PATH ') and '=' in line:
                     a_list = line.partition('@LOCK_PATH ')[2:][0].split()
                     lal = len(a_list)
                     if lal != 2:
@@ -623,23 +691,72 @@ try:
 
                     lock_path_set.add((min_entry, from_latest))
 
+                if line.startswith('@CRITICAL_NAME_LIST '):
+                    a_list = line.partition(
+                        '@CRITICAL_NAME_LIST ')[2:][0].split(',')
+
+                    for name in a_list:
+                        name_set.add(name.strip(' \n'))
+
+                if line.startswith('@CRITICAL_CGROUP2_REGEX '):
+                    cgroup_re = line.partition('@CRITICAL_CGROUP2_REGEX ')[2:][
+                        0].strip(' \n')
+                    if valid_re(cgroup_re) is None:
+                        cgroup_set.add(cgroup_re)
+
 except (PermissionError, UnicodeDecodeError, IsADirectoryError,
         IndexError, FileNotFoundError) as e:
     errprint('Invalid config: {}. Exit.'.format(e))
     exit(1)
 
+name_set.discard('')
 
-if '$DEBUG' in config_dict:
-    debug = config_dict['$DEBUG']
-    if debug == 'True':
-        debug = True
-    elif debug == 'False':
-        debug = False
+if len(cgroup_set) > 0:
+    check_cgroup = True
+else:
+    check_cgroup = False
+
+
+def valid_v(x):
+    """
+    """
+    if x == '0':
+        return False
+    elif x == '1':
+        return True
     else:
-        errprint('invalid $DEBUG value')
+        errprint('Invalid $VERBOSITY value')
+        exit(1)
+
+
+if '$VERBOSITY' in config_dict:
+    verbosity = config_dict['$VERBOSITY']
+
+    if len(verbosity) != 4:
+        errprint('invalid $VERBOSITY value')
+        exit(1)
+
+    debug_1 = valid_v(verbosity[0])
+    debug_self = valid_v(verbosity[1])
+    debug_lock = valid_v(verbosity[2])
+    debug_map = valid_v(verbosity[3])
+
+else:
+    errprint('missing $VERBOSITY key')
+    exit(1)
+
+
+if '$LOCK_ONLY_CRITICAL' in config_dict:
+    lock_only_critical = config_dict['$LOCK_ONLY_CRITICAL']
+    if lock_only_critical == 'True':
+        lock_only_critical = True
+    elif lock_only_critical == 'False':
+        lock_only_critical = False
+    else:
+        errprint('invalid $LOCK_ONLY_CRITICAL value')
         exit(1)
 else:
-    errprint('missing $DEBUG key')
+    errprint('missing $LOCK_ONLY_CRITICAL key')
     exit(1)
 
 
@@ -708,16 +825,21 @@ config = path.abspath(config)
 
 print('Starting prelockd with the config: {}'.format(config))
 
-if debug:
-    print('$LOCK_PATH_REGEX:        ', lock_path_regex)
-    print('$MAX_FILE_SIZE_MIB:      ', max_file_size / MIB)
-    print('$MAX_TOTAL_SIZE_MIB:     ', round(max_total_size_mib / MIB, 1))
-    print('$MAX_TOTAL_SIZE_PERCENT: ', round(
+if debug_self:
+    print('$LOCK_PATH_REGEX:            ', lock_path_regex)
+    print('$MAX_FILE_SIZE_MIB:          ', max_file_size / MIB)
+    print('$MAX_TOTAL_SIZE_MIB:         ', round(max_total_size_mib / MIB, 1))
+    print('$MAX_TOTAL_SIZE_PERCENT:     ', round(
         max_total_size_pc / MIB, 1), '(MiB)')
-    print('max_total_size:          ', round(max_total_size / MIB, 1), '(MiB)')
-    print('$DEBUG:                  ', debug)
-    print('$LOCK_PATH_REGEX:        ', lock_path_regex)
-    print('@LOCK_PATH               ', lock_path_set)
+    print('max_total_size:              ', round(
+        max_total_size / MIB, 1), '(MiB)')
+    print('$VERBOSITY:                  ', verbosity)
+    print('$LOCK_PATH_REGEX:            ', lock_path_regex)
+    print('@LOCK_PATH                   ', lock_path_set)
+    print('$LOCK_ONLY_CRITICAL          ', lock_only_critical)
+    print('@CRITICAL_NAME_LIST          ', list(name_set))
+    print('@CRITICAL_CGROUP2_REGEX set: ', cgroup_set)
+
 
 if max_store_num == 0:
     print('WARNING: lock rules are empty!')
@@ -734,10 +856,16 @@ sig_list = [SIGTERM, SIGINT, SIGQUIT, SIGHUP]
 for i in sig_list:
     signal(i, signal_handler)
 
-mm_debug()
+if debug_1:
+    mm_debug()
 
 YES = 1
 NO = 0
+
+
+if debug_self:
+    self_rss = get_self_rss()
+    print('self rss: {}M'.format(round(self_rss / MIB, 1)))
 
 var_dict['lock_t0'] = monotonic()
 
@@ -771,5 +899,9 @@ while True:
     lock_it = final_set - old_final_set
     lock_files(lock_it)
     var_dict['lock_t0'] = monotonic()
+    if debug_self:
+        self_rss = get_self_rss()
+        print('self rss: {}M'.format(round(self_rss / MIB, 1)))
+        cpu()
     stdout.flush()
     sleep(interval)
