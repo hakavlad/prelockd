@@ -13,24 +13,24 @@ all:
 	@ echo "Use: make install, make uninstall"
 
 base:
-	install -d $(DESTDIR)$(SBINDIR)
-	install -m0755 $(NAME) $(DESTDIR)$(SBINDIR)/$(NAME)
+	install -p -d $(DESTDIR)$(SBINDIR)
+	install -p -m0755 $(NAME) $(DESTDIR)$(SBINDIR)/$(NAME)
 
-	install -d $(DESTDIR)$(SYSCONFDIR)
-	install -m0644 $(NAME).conf $(DESTDIR)$(SYSCONFDIR)/$(NAME).conf
+	install -p -d $(DESTDIR)$(SYSCONFDIR)
+	install -p -m0644 $(NAME).conf $(DESTDIR)$(SYSCONFDIR)/$(NAME).conf
 
-	install -d $(DESTDIR)$(DOCDIR)
-	install -m0644 README.md $(DESTDIR)$(DOCDIR)/README.md
+	install -p -d $(DESTDIR)$(DOCDIR)
+	install -p -m0644 README.md $(DESTDIR)$(DOCDIR)/README.md
 
-	install -dm0700 $(DESTDIR)/var/lib/$(NAME)
+	install -p -dm0700 $(DESTDIR)/var/lib/$(NAME)
 
 units:
-	install -d $(DESTDIR)$(SYSTEMDUNITDIR)
+	install -p -d $(DESTDIR)$(SYSTEMDUNITDIR)
 
 	sed "s|:TARGET_SBINDIR:|$(SBINDIR)|; s|:TARGET_SYSCONFDIR:|$(SYSCONFDIR)|" \
 		$(NAME).service.in > $(NAME).service
 
-	install -m0644 $(NAME).service $(DESTDIR)$(SYSTEMDUNITDIR)/$(NAME).service
+	install -p -m0644 $(NAME).service $(DESTDIR)$(SYSTEMDUNITDIR)/$(NAME).service
 
 	rm -fv $(NAME).service
 
