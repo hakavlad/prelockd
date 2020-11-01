@@ -60,40 +60,36 @@ See also https://youtu.be/fPnbnNX9CPE, https://youtu.be/O8QNnfb_Vm0.
 ## Install
 
 #### On [Fedora](https://src.fedoraproject.org/rpms/prelockd):
-
 ```
 $ sudo dnf install prelockd
 $ sudo systemctl enable --now prelockd.service
 ```
 
+#### For Arch Linux there's an [AUR package](https://aur.archlinux.org/packages/prelockd-git/)
+
+Use your favorite [AUR helper](https://wiki.archlinux.org/index.php/AUR_helpers). For example,
+```bash
+$ yay -S prelockd-git
+$ sudo systemctl enable --now prelockd.service
+```
+
 #### On other distros:
 
-```
+Install:
+```bash
 $ git clone https://github.com/hakavlad/prelockd.git && cd prelockd
 $ sudo make install
 $ sudo systemctl enable --now prelockd.service
 ```
 
-#### Uninstall
-```
+Uninstall:
+```bash
 $ sudo make uninstall
 ```
 
-## How to use
-
-Install and start the daemon.
-
-## Config
-
-`/etc/prelockd.conf` or `/usr/local/etc/prelockd.conf`
-
-https://github.com/hakavlad/prelockd/blob/master/prelockd.conf
-
-(to be documented)
-
 ## How to configure
 
-Edit the config and restart the daemon.
+Edit the config (`/etc/prelockd.conf` or `/usr/local/etc/prelockd.conf`) and restart the service.
 
 ## TODO
 
