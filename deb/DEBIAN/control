@@ -1,0 +1,11 @@
+Package: prelockd
+Version: 0.8
+Section: admin
+Architecture: all
+Depends: python3
+Maintainer: Alexey Avramov <hakavlad@gmail.com>
+Priority: optional
+Homepage: https://github.com/hakavlad/prelockd
+Description: Daemon that locks memory mapped binaries and libraries in memory
+ Daemon that locks memory mapped binaries and libraries in memory to improve
+ system responsiveness under low-memory conditions.

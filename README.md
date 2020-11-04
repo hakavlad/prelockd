@@ -73,6 +73,29 @@ $ yay -S prelockd-git
 $ sudo systemctl enable --now prelockd.service
 ```
 
+#### To install on Debian and Ubuntu-based systems:
+
+It's easy to build a deb package with the latest git snapshot. Install build dependencies:
+```bash
+$ sudo apt install make fakeroot
+```
+
+Clone the latest git snapshot and run the build script to build the package:
+```bash
+$ git clone https://github.com/hakavlad/prelockd.git && cd prelockd
+$ deb/build.sh
+```
+
+Install the package:
+```bash
+$ sudo apt install --reinstall ./deb/package.deb
+```
+
+Start and enable `prelockd.service` after installing the package:
+```bash
+$ sudo systemctl enable --now prelockd.service
+```
+
 #### On other distros:
 
 Install:
@@ -98,4 +121,3 @@ Edit the config (`/etc/prelockd.conf` or `/usr/local/etc/prelockd.conf`) and res
 ## Report bugs and ask any questions
 
 https://github.com/hakavlad/prelockd/issues
-

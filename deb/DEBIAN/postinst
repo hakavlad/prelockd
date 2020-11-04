@@ -1,0 +1,3 @@
+if useradd -r -s /bin/false prelockd; then true; else true; fi
+systemctl daemon-reload
+echo "prelockd package has been installed"
