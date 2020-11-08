@@ -1,6 +1,6 @@
 [Unit]
 Description=Daemon that prevents eviction of executables/libraries from memory
-Documentation=https://github.com/hakavlad/prelockd
+Documentation=man:prelockd(8) https://github.com/hakavlad/prelockd
 
 [Service]
 ExecStart=:TARGET_SBINDIR:/prelockd -c :TARGET_SYSCONFDIR:/prelockd.conf
