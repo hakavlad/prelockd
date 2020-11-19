@@ -56,13 +56,13 @@ units:
 	rm -fv $(NAME).service
 
 useradd:
-	-useradd -r -s /bin/false $(NAME) &>/dev/null
+	useradd -r -s /bin/false $(NAME) || :
 
 chcon:
-	-chcon -t systemd_unit_file_t $(DESTDIR)$(SYSTEMDUNITDIR)/$(NAME).service &>/dev/null
+	chcon -t systemd_unit_file_t $(DESTDIR)$(SYSTEMDUNITDIR)/$(NAME).service || :
 
 daemon-reload:
-	-systemctl daemon-reload
+	systemctl daemon-reload || :
 
 build_deb: base units
 
@@ -83,9 +83,8 @@ uninstall-base:
 	rm -fvr $(DESTDIR)/var/lib/$(NAME)/
 
 uninstall-units:
-	# 'make uninstall-units' must not fail with error if systemctl is unavailable or returns error
-	-systemctl stop $(NAME).service || true
-	-systemctl disable $(NAME).service || true
+	systemctl stop $(NAME).service || :
+	systemctl disable $(NAME).service || :
 
 	rm -fv $(DESTDIR)$(SYSTEMDUNITDIR)/$(NAME).service
 
