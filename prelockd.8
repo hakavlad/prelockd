@@ -16,7 +16,10 @@ memory to improve system responsiveness under low\-memory conditions.
 .SH COMMAND\-LINE OPTIONS
 .SS \-c CONFIG
 .PP
-path to the config file
+path to config file
+.SS \-r
+.PP
+remove dumped snapshots
 .SH FILES
 .SS :SYSCONFDIR:/prelockd.conf
 .PP
@@ -24,6 +27,15 @@ path to configuration file
 .SS :DATADIR:/prelockd/prelockd.conf
 .PP
 path to file with \f[I]default\f[] prelockd.conf values
+.SH RESTORE DEFAULT CONFIG
+.PP
+To resore config file with default values execute
+.IP
+.nf
+\f[C]
+sudo\ cp\ :DATADIR:/prelockd/prelockd.conf\ :SYSCONFDIR:/prelockd.conf
+\f[]
+.fi
 .SH HOW TO CONFIGURE
 .PP
 Edit the config and restart the service.

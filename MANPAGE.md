@@ -12,7 +12,10 @@ prelockd is a daemon that locks memory mapped binaries and libraries in memory t
 # COMMAND-LINE OPTIONS
 
 #### -c CONFIG
-path to the config file
+path to config file
+
+#### -r
+remove dumped snapshots
 
 # FILES
 
@@ -21,6 +24,12 @@ path to configuration file
 
 #### :DATADIR:/prelockd/prelockd.conf
 path to file with *default* prelockd.conf values
+
+# RESTORE DEFAULT CONFIG
+To resore config file with default values execute
+```bash
+sudo cp :DATADIR:/prelockd/prelockd.conf :SYSCONFDIR:/prelockd.conf
+```
 
 # HOW TO CONFIGURE
 Edit the config and restart the service.
