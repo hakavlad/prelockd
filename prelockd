@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""prelockd"""
-
 
 from ctypes import CDLL
 from json import dump, load
@@ -11,6 +9,35 @@ from signal import SIGHUP, SIGINT, SIGQUIT, SIGTERM, signal
 from sre_constants import error as invalid_re
 from sys import argv, exit, stderr, stdout
 from time import monotonic, process_time, sleep
+
+
+def format_time(t):
+    """
+    """
+    total_s = int(t)
+
+    if total_s < 60:
+        return '{}s'.format(round(t, 1))
+
+    if total_s < 3600:
+        total_m = total_s // 60
+        mod_s = total_s % 60
+        return '{}min {}s'.format(total_m, mod_s)
+
+    if total_s < 86400:
+        total_m = total_s // 60
+        mod_s = total_s % 60
+        total_h = total_m // 60
+        mod_m = total_m % 60
+        return '{}h {}min {}s'.format(total_h, mod_m, mod_s)
+
+    total_m = total_s // 60
+    mod_s = total_s % 60
+    total_h = total_m // 60
+    mod_m = total_m % 60
+    total_d = total_h // 24
+    mod_h = total_h % 24
+    return '{}d {}h {}min {}s'.format(total_d, mod_h, mod_m, mod_s)
 
 
 def valid_re(reg_exp):
@@ -46,7 +73,7 @@ def mlockall():
     """
     MCL_FUTURE = 2
 
-    libc = CDLL('libc.so.6', use_errno=True)
+    libc = CDLL(None, use_errno=True)
 
     result = libc.mlockall(MCL_FUTURE)
 
@@ -65,7 +92,7 @@ def signal_handler(signum, frame):
     Handle signals: close fd, dump d and t, exit.
     """
     print('Got signal {}'.format(signum))
-    print('Unlocking files and dumping saved snapshots')
+    print('Unlocking files and dumping snapshots')
     unlock_files(lock_dict)
 
     lock_t = round(monotonic() - var_dict['lock_t0'], 1)
@@ -75,13 +102,12 @@ def signal_handler(signum, frame):
     dump_d['d'] = d
     jdump(dump_path, dump_d)
 
-    if debug_1:
-        mm_debug()
-
     if debug_self:
+        mm_debug()
         self_rss = get_self_rss()
         print('self rss: {}M'.format(round(self_rss / MIB, 1)))
-        cpu()
+
+    cpu()
 
     print('Exit.')
     exit()
@@ -92,7 +118,7 @@ def get_pid_list():
     """
     pid_list = []
     for pid in listdir('/proc'):
-        if pid[0].isdecimal() is False:
+        if not pid[0].isdecimal():
             continue
         pid_list.append(pid)
     pid_list.remove(self_pid)
@@ -251,7 +277,7 @@ def get_sorted(rp_set):
     """
     di = dict()
     for rp in rp_set:
-        rp = str(rp)  # ?
+        rp = str(rp)
         if search(lock_path_regex, rp) is not None:
             try:
                 s = path.getsize(rp)
@@ -526,8 +552,12 @@ def rotate_snapshots():
 def jdump(pathname, data):
     """
     """
-    with open(pathname, 'w') as f:
-        dump(data, f, sort_keys=True, indent=0)
+    try:
+        with open(pathname, 'w') as f:
+            dump(data, f, sort_keys=True, indent=0)
+    except (PermissionError, FileNotFoundError) as e:
+        errprint(e)
+        exit(1)
 
 
 def jload(pathname):
@@ -572,11 +602,30 @@ def cpu():
     user_time, system_time = times()[0:2]
     p_time = user_time + system_time
     p_percent = p_time / m * 100
-    print('process time: {}s (average: {}%)'.format(
-        round(p_time, 2), round(p_percent, 2)))
+
+    print('Uptime {}, CPU time {}s (user {}s, sys {}s), avg {}%'.format(
+        format_time(m),
+        round(p_time, 2),
+        user_time,
+        system_time,
+        round(p_percent, 2)
+    ))
+
+
+def valid_v(x):
+    """
+    """
+    if x == '0':
+        return False
+    elif x == '1':
+        return True
+    else:
+        errprint('Invalid $VERBOSITY value')
+        exit(1)
 
 
 ###############################################################################
+
 
 start_time = monotonic()
 
@@ -600,9 +649,15 @@ if la == 0:
     errprint('invalid input: missing CLI options')
     exit(1)
 elif la == 1:
-    if a[0] == '-p':
-        get_current_set()
-        exit()
+    if a[0] == '-r':
+        from os import remove
+        try:
+            remove(dump_path)
+            print('OK')
+            exit()
+        except (FileNotFoundError, PermissionError) as e:
+            errprint(e)
+            exit(1)
     else:
         errprint('invalid input')
         exit(1)
@@ -709,24 +764,11 @@ except (PermissionError, UnicodeDecodeError, IsADirectoryError,
     errprint('Invalid config: {}. Exit.'.format(e))
     exit(1)
 
+
 name_set.discard('')
 
-if len(cgroup_set) > 0:
-    check_cgroup = True
-else:
-    check_cgroup = False
 
-
-def valid_v(x):
-    """
-    """
-    if x == '0':
-        return False
-    elif x == '1':
-        return True
-    else:
-        errprint('Invalid $VERBOSITY value')
-        exit(1)
+check_cgroup = bool(len(cgroup_set))
 
 
 if '$VERBOSITY' in config_dict:
@@ -766,7 +808,7 @@ if '$MAX_FILE_SIZE_MIB' in config_dict:
     if max_file_size_mib is None:
         errprint('invalid $MAX_FILE_SIZE_MIB value')
         exit(1)
-    max_file_size = int(max_file_size_mib * 1048576)
+    max_file_size = int(max_file_size_mib * MIB)
 else:
     errprint('missing $MAX_FILE_SIZE_MIB key')
     exit(1)
@@ -786,7 +828,8 @@ if '$MAX_TOTAL_SIZE_PERCENT' in config_dict:
     if max_total_size_percent is None:
         errprint('invalid $MAX_TOTAL_SIZE_PERCENT value')
         exit(1)
-    max_total_size_pc = int(mem_total * max_total_size_percent / 100) * 1024
+    max_total_size_pc = int(
+        mem_total * max_total_size_percent / 100) * 1024  # bytes
 else:
     errprint('missing $MAX_TOTAL_SIZE_PERCENT key')
     exit(1)
@@ -798,7 +841,7 @@ if '$MAX_TOTAL_SIZE_MIB' in config_dict:
     if max_total_size_mib is None:
         errprint('invalid $MAX_TOTAL_SIZE_MIB value')
         exit(1)
-    max_total_size_mib = int(max_total_size_mib * 1048576)
+    max_total_size_mib = int(max_total_size_mib * MIB)  # bytes
 else:
     errprint('missing $MAX_TOTAL_SIZE_MIB key')
     exit(1)
@@ -823,7 +866,7 @@ else:
 
 config = path.abspath(config)
 
-print('Starting prelockd with the config: {}'.format(config))
+print('Starting prelockd with config {}'.format(config))
 
 if debug_self:
     print('$LOCK_PATH_REGEX:            ', lock_path_regex)
@@ -837,8 +880,8 @@ if debug_self:
     print('$LOCK_PATH_REGEX:            ', lock_path_regex)
     print('@LOCK_PATH                   ', lock_path_set)
     print('$LOCK_ONLY_CRITICAL          ', lock_only_critical)
-    print('@CRITICAL_NAME_LIST          ', list(name_set))
     print('@CRITICAL_CGROUP2_REGEX set: ', cgroup_set)
+    print('@CRITICAL_NAME_LIST          ', list(name_set))
 
 
 if max_store_num == 0:
@@ -856,7 +899,7 @@ sig_list = [SIGTERM, SIGINT, SIGQUIT, SIGHUP]
 for i in sig_list:
     signal(i, signal_handler)
 
-if debug_1:
+if debug_self:
     mm_debug()
 
 YES = 1
@@ -881,6 +924,11 @@ try:
     if extra_t > 0:
         stdout.flush()
         sleep(extra_t)
+except FileNotFoundError as e:
+    if debug_self:
+        print(e)
+    d = dict()
+    lock_t = 0
 except Exception as e:
     print(e)
     d = dict()
