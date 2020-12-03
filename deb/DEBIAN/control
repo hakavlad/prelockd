@@ -1,5 +1,5 @@
 Package: prelockd
-Version: 0.8
+Version: 0.9
 Section: admin
 Architecture: all
 Depends: python3
