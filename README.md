@@ -66,13 +66,14 @@ $ sudo dnf install prelockd
 $ sudo systemctl enable --now prelockd.service
 ```
 
-#### For Arch Linux there's an [AUR package](https://aur.archlinux.org/packages/prelockd-git/)
+#### For Arch Linux there's an [AUR package](https://aur.archlinux.org/packages/prelockd/)
 
 Use your favorite [AUR helper](https://wiki.archlinux.org/index.php/AUR_helpers). For example,
 ```bash
-$ yay -S prelockd-git
+$ yay -S prelockd
 $ sudo systemctl enable --now prelockd.service
 ```
+[prelockd-git](https://aur.archlinux.org/packages/prelockd-git/) is also available.
 
 #### To install on Debian and Ubuntu-based systems:
 
