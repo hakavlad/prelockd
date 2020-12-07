@@ -3,7 +3,7 @@
 [![Total alerts](https://img.shields.io/lgtm/alerts/g/hakavlad/prelockd.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/hakavlad/prelockd/alerts/)
 [![Packaging status](https://repology.org/badge/tiny-repos/prelockd.svg)](https://repology.org/project/prelockd/versions)
 
-prelockd is a daemon that locks memory mapped binaries and libraries in memory to improve system responsiveness under low-memory conditions.
+prelockd is a daemon that locks memory mapped executables and shared libraries in memory to improve system responsiveness under low-memory conditions.
 
 ## What is the problem?
 

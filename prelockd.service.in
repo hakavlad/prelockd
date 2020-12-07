@@ -1,5 +1,5 @@
 [Unit]
-Description=Daemon that prevents eviction of executables/libraries from memory
+Description=Daemon that locks executables/libraries in memory
 Documentation=man:prelockd(8) https://github.com/hakavlad/prelockd
 
 [Service]

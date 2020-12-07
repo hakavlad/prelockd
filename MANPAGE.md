@@ -7,7 +7,7 @@ prelockd - Daemon that locks memory mapped binaries and libraries in memory to i
 **prelockd** [**OPTION**]...
 
 # DESCRIPTION
-prelockd is a daemon that locks memory mapped binaries and libraries in memory to improve system responsiveness under low-memory conditions.
+prelockd is a daemon that locks memory mapped executables and shared libraries in memory to improve system responsiveness under low-memory conditions.
 
 # COMMAND-LINE OPTIONS
 
