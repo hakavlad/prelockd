@@ -1,5 +1,6 @@
 # prelockd
 
+![CodeQL](https://github.com/hakavlad/prelockd/workflows/CodeQL/badge.svg)
 [![Total alerts](https://img.shields.io/lgtm/alerts/g/hakavlad/prelockd.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/hakavlad/prelockd/alerts/)
 [![Packaging status](https://repology.org/badge/tiny-repos/prelockd.svg)](https://repology.org/project/prelockd/versions)
 
