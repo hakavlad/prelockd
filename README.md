@@ -61,12 +61,6 @@ See also https://youtu.be/fPnbnNX9CPE, https://youtu.be/O8QNnfb_Vm0.
 
 ## Install
 
-#### On [Fedora](https://src.fedoraproject.org/rpms/prelockd):
-```
-$ sudo dnf install prelockd
-$ sudo systemctl enable --now prelockd.service
-```
-
 #### For Arch Linux there's an [AUR package](https://aur.archlinux.org/packages/prelockd/)
 
 Use your favorite [AUR helper](https://wiki.archlinux.org/index.php/AUR_helpers). For example,
