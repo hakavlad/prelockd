@@ -232,7 +232,7 @@ def get_current_set():
             if lifetime >= min_save_lifetime:
                 uniq_map_d[uniq_id] = uniq_map_set
 
-        except FileNotFoundError as e:
+        except (FileNotFoundError, ProcessLookupError) as e:
             errprint(e)
             continue
 
